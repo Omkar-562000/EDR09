@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sign Up | Automated EDR</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body class="auth-shell">
+  <main class="auth-layout auth-layout-wide">
+    <section class="auth-band">
+      <div class="auth-brand">
+        <p class="eyebrow">Automated EDR</p>
+        <h1>Create Analyst Account</h1>
+        <p class="auth-copy">Provision secure access to the EDR console for simulation, validation, and walkthrough workflows.</p>
+        <div class="auth-feature-list">
+          <div class="auth-feature"><strong>Fast onboarding</strong><span>Create an account and enter the console in one flow.</span></div>
+          <div class="auth-feature"><strong>Persistent audit state</strong><span>Users, detections, and responses remain available between sessions.</span></div>
+          <div class="auth-feature"><strong>Ready for GitHub use</strong><span>Other users can clone, run, and host this project themselves.</span></div>
+        </div>
+      </div>
+      <section class="auth-panel">
+        <div>
+          <p class="panel-kicker">Register</p>
+          <h2>Create your account</h2>
+        </div>
+        <form id="signup-form" class="auth-form">
+          <label>
+            <span>Email</span>
+            <input id="email" name="email" type="email" required>
+          </label>
+          <label>
+            <span>Password</span>
+            <input id="password" name="password" type="password" minlength="8" required>
+          </label>
+          <button id="auth-submit" type="submit">Create Account</button>
+          <p id="auth-message" class="meta"></p>
+        </form>
+        <p class="meta">Already registered? <a href="/login">Sign in</a></p>
+      </section>
+    </section>
+  </main>
+  <script src="/static/auth.js"></script>
+</body>
+</html>

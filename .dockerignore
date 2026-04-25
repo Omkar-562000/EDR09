@@ -1,0 +1,59 @@
+# Git
+.git
+.gitignore
+.github
+
+# Development
+.vscode
+.idea
+.DS_Store
+*.log
+
+# Node
+node_modules
+npm-debug.log
+yarn-error.log
+.next
+.nuxt
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+.venv
+venv
+env
+
+# Database
+*.db
+*.sqlite
+
+# Data/Logs
+data
+logs
+
+# Documentation
+docs
+README.md
+CONTRIBUTING.md
+LICENSE
+
+# CI/CD
+.github
+.gitlab-ci.yml
+.circleci
+.travis.yml
+
+# Testing
+pytest.ini
+.pytest_cache
+.coverage
+htmlcov
+tox.ini
+
+# Build artifacts
+dist
+build
+*.egg-info

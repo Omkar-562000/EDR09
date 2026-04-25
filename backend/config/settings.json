@@ -1,0 +1,5 @@
+{
+  "watch_path": "watched",
+  "host_name": "endpoint-01",
+  "auto_start_agent": true
+}

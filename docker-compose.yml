@@ -1,0 +1,55 @@
+version: '3.8'
+
+services:
+  # EDR Backend API Service
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: edr-backend
+    ports:
+      - "8000:8000"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - EDR_SESSION_SECRET=docker-development-secret-change-in-production
+      - EDR_AUTO_START_AGENT=true
+      - EDR_WATCH_PATH=/app/backend/watched
+    volumes:
+      - ./backend:/app/backend
+      - ./edr-data:/app/backend/data
+    networks:
+      - edr-network
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8000/api/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+  # EDR Frontend Development Server
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    container_name: edr-frontend
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_API_URL=http://127.0.0.1:8000
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/index.html:/app/index.html
+    networks:
+      - edr-network
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+networks:
+  edr-network:
+    driver: bridge
+
+volumes:
+  edr-data:
+    driver: local

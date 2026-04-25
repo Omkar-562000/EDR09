@@ -1,0 +1,42 @@
+[project]
+name = "automated-edr"
+version = "0.3.0"
+description = "Lightweight, web-based EDR tool for real-time threat detection and automated response"
+authors = [
+  { name = "EDR Team", email = "info@edr.local" }
+]
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.115.0,<1.0.0",
+  "uvicorn>=0.30.0,<1.0.0",
+  "psutil>=6.0.0,<7.0.0",
+  "python-multipart>=0.0.9,<1.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0.0,<9.0.0",
+  "pytest-asyncio>=0.21.0,<1.0.0",
+  "black>=23.0.0,<24.0.0",
+  "ruff>=0.1.0,<1.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/yourusername/automated-edr"
+Repository = "https://github.com/yourusername/automated-edr"
+Documentation = "https://github.com/yourusername/automated-edr/wiki"
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.black]
+line-length = 120
+target-version = ['py311']
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+select = ["E", "F", "I", "N", "W"]

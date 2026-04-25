@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Login | Automated EDR</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body class="auth-shell">
+  <main class="auth-layout auth-layout-wide">
+    <section class="auth-band">
+      <div class="auth-brand">
+        <p class="eyebrow">Automated EDR</p>
+        <h1>Analyst Access</h1>
+        <p class="auth-copy">Monitor endpoint signals, review detections, and validate containment workflows from a single console.</p>
+        <div class="auth-feature-list">
+          <div class="auth-feature"><strong>Real-time feeds</strong><span>Events, detections, and actions refresh continuously.</span></div>
+          <div class="auth-feature"><strong>Protected console</strong><span>Session-based access for analysts and reviewers.</span></div>
+          <div class="auth-feature"><strong>Deployment-ready</strong><span>Clone locally or host online from the repository.</span></div>
+        </div>
+      </div>
+      <section class="auth-panel">
+        <div>
+          <p class="panel-kicker">Sign In</p>
+          <h2>Continue to dashboard</h2>
+        </div>
+        <form id="login-form" class="auth-form">
+          <label>
+            <span>Email</span>
+            <input id="email" name="email" type="email" required>
+          </label>
+          <label>
+            <span>Password</span>
+            <input id="password" name="password" type="password" minlength="8" required>
+          </label>
+          <button id="auth-submit" type="submit">Login</button>
+          <p id="auth-message" class="meta"></p>
+        </form>
+        <p class="meta">No account yet? <a href="/signup">Create one</a></p>
+      </section>
+    </section>
+  </main>
+  <script src="/static/auth.js"></script>
+</body>
+</html>

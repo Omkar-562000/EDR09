@@ -1,0 +1,45 @@
+# Python virtual environments
+.venv/
+venv/
+
+# Python cache and test artifacts
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Backend runtime data
+backend/data/
+backend/__pycache__/
+backend/**/*.pyc
+backend/**/*.pyo
+backend/**/*.pyd
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+*.jsonl
+
+# Frontend dependencies and build output
+frontend/node_modules/
+frontend/dist/
+
+# Environment files
+.env
+.env.*
+!.env.example
+backend/.env.example
+
+# IDE and OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+backend/data/
+*.db
+*.jsonl

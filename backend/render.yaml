@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: automated-edr
+    env: docker
+    plan: free
+    autoDeploy: true
+    envVars:
+      - key: EDR_SESSION_SECRET
+        generateValue: true
+      - key: PORT
+        value: 10000
