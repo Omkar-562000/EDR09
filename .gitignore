@@ -42,4 +42,4 @@ backend/.env.example
 Thumbs.db
 backend/data/
 *.db
-*.jsonl
+*.jsonls
