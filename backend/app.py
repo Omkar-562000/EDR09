@@ -59,6 +59,27 @@ class ScenarioPayload(BaseModel):
         return scenario
 
 
+class AgentIntervalPayload(BaseModel):
+    interval_seconds: float = Field(ge=5, le=3600)
+
+
+class CollectorTogglePayload(BaseModel):
+    enabled: bool
+
+
+class FirewallIpPayload(BaseModel):
+    ip_address: str
+    direction: str = "both"
+
+    @field_validator("direction")
+    @classmethod
+    def validate_direction(cls, value: str) -> str:
+        direction = value.strip().lower()
+        if direction not in {"inbound", "outbound", "both"}:
+            raise ValueError("Direction must be inbound, outbound, or both")
+        return direction
+
+
 settings = load_settings()
 watch_path = Path(settings["watch_path"])
 if not watch_path.is_absolute():
@@ -239,14 +260,82 @@ async def me(user: dict[str, Any] = Depends(get_current_user)) -> dict[str, Any]
 @app.get("/api/control")
 async def get_control_state(user: dict[str, Any] = Depends(get_current_user)) -> dict[str, Any]:
     del user
-    return control_state
+    return {**control_state, "agent": edr_service.agent_status()}
 
 
 @app.post("/api/control/mode")
 async def set_control_mode(payload: ControlModePayload, user: dict[str, Any] = Depends(get_current_user)) -> dict[str, Any]:
     del user
     control_state["mode"] = payload.mode
-    return control_state
+    return {**control_state, "agent": edr_service.agent_status()}
+
+
+@app.get("/api/agent")
+async def get_agent_status(user: dict[str, Any] = Depends(get_current_user)) -> dict[str, Any]:
+    del user
+    return edr_service.agent_status()
+
+
+@app.post("/api/agent/pause")
+async def pause_agent(user: dict[str, Any] = Depends(get_current_user)) -> dict[str, Any]:
+    del user
+    return edr_service.pause_agent()
+
+
+@app.post("/api/agent/resume")
+async def resume_agent(user: dict[str, Any] = Depends(get_current_user)) -> dict[str, Any]:
+    del user
+    return edr_service.resume_agent()
+
+
+@app.post("/api/agent/interval")
+async def set_agent_interval(
+    payload: AgentIntervalPayload,
+    user: dict[str, Any] = Depends(get_current_user),
+) -> dict[str, Any]:
+    del user
+    return edr_service.set_agent_interval(payload.interval_seconds)
+
+
+@app.post("/api/agent/collectors/{collector_id}")
+async def set_collector_enabled(
+    collector_id: str,
+    payload: CollectorTogglePayload,
+    user: dict[str, Any] = Depends(get_current_user),
+) -> dict[str, Any]:
+    del user
+    try:
+        return edr_service.set_collector_enabled(collector_id, payload.enabled)
+    except KeyError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown collector") from exc
+
+
+@app.post("/api/firewall/block-ip")
+async def block_firewall_ip(
+    payload: FirewallIpPayload,
+    user: dict[str, Any] = Depends(get_current_user),
+) -> dict[str, str]:
+    del user
+    try:
+        return edr_service.block_ip(payload.ip_address, payload.direction)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)) from exc
+
+
+@app.post("/api/firewall/unblock-ip")
+async def unblock_firewall_ip(
+    payload: FirewallIpPayload,
+    user: dict[str, Any] = Depends(get_current_user),
+) -> dict[str, str]:
+    del user
+    try:
+        return edr_service.unblock_ip(payload.ip_address, payload.direction)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)) from exc
 
 
 @app.post("/api/control/simulate")
@@ -284,6 +373,7 @@ async def get_status(user: dict[str, Any] = Depends(get_current_user)) -> dict[s
         "blocked_ips": sorted(edr_service.response_engine.blocked_ips),
         "terminated_processes": edr_service.response_engine.terminated_processes[-20:],
         "control": control_state,
+        "agent": edr_service.agent_status(),
     }
 
 

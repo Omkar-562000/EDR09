@@ -1,4 +1,4 @@
-const API_BASE = "http://localhost:8000";
+const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
 async function request(path, options = {}) {
   const fetchOptions = {
@@ -35,10 +35,49 @@ export const api = {
   actions: (limit = 100) => request(`/api/actions?limit=${limit}`),
   collect: () => request("/api/collect", { method: "POST" }),
   reloadRules: () => request("/api/reload-rules", { method: "POST" }),
+  control: () => request("/api/control"),
+  setMode: (mode) =>
+    request("/api/control/mode", {
+      method: "POST",
+      body: JSON.stringify({ mode })
+    }),
+  simulate: (scenario) =>
+    request("/api/control/simulate", {
+      method: "POST",
+      body: JSON.stringify({ scenario })
+    }),
+  autonomousRun: (scenario) =>
+    request("/api/control/autonomous-run", {
+      method: "POST",
+      body: JSON.stringify({ scenario })
+    }),
+  agent: () => request("/api/agent"),
+  pauseAgent: () => request("/api/agent/pause", { method: "POST" }),
+  resumeAgent: () => request("/api/agent/resume", { method: "POST" }),
+  setAgentInterval: (intervalSeconds) =>
+    request("/api/agent/interval", {
+      method: "POST",
+      body: JSON.stringify({ interval_seconds: intervalSeconds })
+    }),
+  setCollectorEnabled: (collectorId, enabled) =>
+    request(`/api/agent/collectors/${collectorId}`, {
+      method: "POST",
+      body: JSON.stringify({ enabled })
+    }),
+  blockIp: (ipAddress, direction = "both") =>
+    request("/api/firewall/block-ip", {
+      method: "POST",
+      body: JSON.stringify({ ip_address: ipAddress, direction })
+    }),
+  unblockIp: (ipAddress, direction = "both") =>
+    request("/api/firewall/unblock-ip", {
+      method: "POST",
+      body: JSON.stringify({ ip_address: ipAddress, direction })
+    }),
   ingestEvent: (event) =>
     request("/api/ingest", {
       method: "POST",
-      body: JSON.stringify({ event })
+      body: JSON.stringify(event)
     }),
   signup: (email, password) => {
     return request("/api/auth/signup", {

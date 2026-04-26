@@ -1542,6 +1542,123 @@ summary-card small,
   padding: 0.6rem 0.9rem;
 }
 
+.setting-help {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+
+.flow-limit-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.flow-limit-grid label {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.flow-limit-grid span {
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.agent-control-row {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.agent-control-row input {
+  max-width: 180px;
+}
+
+.agent-state {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.45rem 0.75rem;
+  border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  background: var(--panel-soft);
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.agent-state.running {
+  color: var(--ok);
+  border-color: rgba(128, 230, 167, 0.45);
+}
+
+.agent-state.paused {
+  color: var(--warn);
+  border-color: rgba(243, 198, 106, 0.5);
+}
+
+.collector-list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.collector-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  padding: 0.85rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-soft);
+}
+
+.collector-toggle input {
+  width: 18px;
+  height: 18px;
+}
+
+.collector-toggle span {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.collector-toggle small {
+  color: var(--muted);
+}
+
+.firewall-control-grid {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(170px, 220px) auto auto;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.firewall-note,
+.firewall-message {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.firewall-message {
+  color: var(--accent);
+}
+
+.occurrence-chip {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 0.5rem;
+  padding: 0.15rem 0.45rem;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  border: 1px solid rgba(99, 208, 255, 0.35);
+  font-size: 0.75rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
 /* Responsive Design */
 @media (max-width: 1280px) {
   .summary-grid {
@@ -1557,6 +1674,14 @@ summary-card small,
   }
 
   .logs-container {
+    grid-template-columns: 1fr;
+  }
+
+  .firewall-control-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .flow-limit-grid {
     grid-template-columns: 1fr;
   }
 }

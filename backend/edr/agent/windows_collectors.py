@@ -29,57 +29,28 @@ class WindowsEventLogCollector:
     """
     Collects Windows Event Logs from Security, System, and Application channels.
     Detects: Failed logins, privilege escalation, service changes, account creation.
-    Falls back to demo data if PowerShell unavailable.
     """
 
-    def __init__(self, lookback_minutes: int = 5, demo_mode: bool = False):
+    def __init__(self, lookback_minutes: int = 5):
         self.lookback_minutes = lookback_minutes
         self.last_record_id = defaultdict(int)
-        self.demo_mode = demo_mode
-        self._fallback_count = 0
 
     def collect(self) -> list[dict[str, Any]]:
         """Collect security-relevant Windows Event Log entries."""
         events = []
         
         try:
-            # Try real Windows Event Logs first
-            if not self.demo_mode:
-                # Security channel events
-                security_events = self._get_security_events()
-                if security_events:
-                    events.extend(security_events)
-                    return events
-                
-                # System channel events
-                system_events = self._get_system_events()
-                if system_events:
-                    events.extend(system_events)
-                    return events
+            # Security channel events
+            security_events = self._get_security_events()
+            events.extend(security_events)
             
-            # Fallback to demo data
-            self._fallback_count += 1
-            if self._fallback_count <= 5:  # Log first few fallbacks
-                events.append({
-                    "source": "windows_event_log",
-                    "event_type": EventType.SECURITY_EVENT.value,
-                    "title": "using_demo_data_fallback",
-                    "payload": {
-                        "reason": "Windows Event Log collection unavailable",
-                        "fallback_count": self._fallback_count
-                    }
-                })
-            
-            # Generate demo events
-            from backend.edr.agent.demo_data import get_demo_generator
-            gen = get_demo_generator()
-            demo_events = gen.generate_failed_logins(2)
-            events.extend(demo_events)
+            # System channel events
+            system_events = self._get_system_events()
+            events.extend(system_events)
             
         except Exception as e:
-            # Ultimate fallback to demo
-            from backend.edr.agent.demo_data import get_demo_generator
-            events.extend(get_demo_generator().generate_demo_batch(3))
+            # Gracefully degrade if WMI unavailable
+            pass
         
         return events
 

@@ -5,7 +5,6 @@ from pathlib import Path
 from typing import Any
 
 from backend.edr.agent.service import EndpointAgent
-from backend.edr.agent.config import get_agent_config
 from backend.edr.config.settings import QUEUE_POLL_TIMEOUT, ensure_directories
 from backend.edr.database.storage import Storage
 from backend.edr.detection.engine import DetectionEngine
@@ -13,32 +12,30 @@ from backend.edr.pipeline.dispatcher import Dispatcher
 from backend.edr.pipeline.normalizer import EventNormalizer
 from backend.edr.pipeline.queue_manager import EventQueue
 from backend.edr.response.engine import ResponseEngine
+from backend.edr.response.firewall import WindowsFirewallController
 
 
 class EDRService:
-    def __init__(self, watch_path: Path, demo_mode: bool = False) -> None:
+    def __init__(self, watch_path: Path) -> None:
         ensure_directories()
         self.storage = Storage()
         self.event_queue = EventQueue()
         self.normalizer = EventNormalizer()
         self.detection_engine = DetectionEngine()
         self.response_engine = ResponseEngine()
+        self.firewall = WindowsFirewallController()
         self.dispatcher = Dispatcher(
             storage=self.storage,
             detection_engine=self.detection_engine,
             response_engine=self.response_engine,
         )
         
-        # Initialize agent with configuration
-        config = get_agent_config(demo_mode=demo_mode)
+        # Initialize agent with real Windows data collection
         self.agent = EndpointAgent(
             self.event_queue,
             watch_path=watch_path,
-            interval_seconds=config.interval_seconds,
-            demo_mode=config.demo_mode,
-            enable_windows_collectors=config.enable_windows_event_logs,
+            interval_seconds=60,
         )
-        self.demo_mode = demo_mode
         self._pipeline_task: asyncio.Task[None] | None = None
         self._agent_task: asyncio.Task[None] | None = None
 
@@ -59,7 +56,36 @@ class EDRService:
         await self.event_queue.publish(raw_event)
 
     async def collect_once(self) -> None:
-        await self.agent.collect_once()
+        await self.agent.collect_once(force=True)
+
+    def agent_status(self) -> dict[str, Any]:
+        return self.agent.status()
+
+    def pause_agent(self) -> dict[str, Any]:
+        self.agent.pause()
+        return self.agent.status()
+
+    def resume_agent(self) -> dict[str, Any]:
+        self.agent.resume()
+        return self.agent.status()
+
+    def set_agent_interval(self, interval_seconds: float) -> dict[str, Any]:
+        self.agent.set_interval(interval_seconds)
+        return self.agent.status()
+
+    def set_collector_enabled(self, collector_id: str, enabled: bool) -> dict[str, Any]:
+        self.agent.set_collector_enabled(collector_id, enabled)
+        return self.agent.status()
+
+    def block_ip(self, ip_address: str, direction: str) -> dict[str, str]:
+        result = self.firewall.block_ip(ip_address, direction)
+        self.response_engine.blocked_ips.add(result.ip_address)
+        return result.to_dict()
+
+    def unblock_ip(self, ip_address: str, direction: str) -> dict[str, str]:
+        result = self.firewall.unblock_ip(ip_address, direction)
+        self.response_engine.blocked_ips.discard(result.ip_address)
+        return result.to_dict()
 
     async def _run_pipeline(self) -> None:
         while True:

@@ -56,7 +56,7 @@ class AgentConfig:
             self.remote_agent_urls = []
 
 
-# Default configuration
+# Default configuration - uses REAL WINDOWS DATA ONLY
 DEFAULT_CONFIG = AgentConfig(
     interval_seconds=60,
     demo_mode=False,
@@ -65,14 +65,14 @@ DEFAULT_CONFIG = AgentConfig(
     enable_dns_collection=True,
     enable_process_injection_detection=True,
     agent_mode="local",
-    use_demo_fallback=True,
+    use_demo_fallback=False,  # Disabled - use real data only
 )
 
-# Demo configuration (for demonstrations)
+# Demo configuration (archived - not used in production)
 DEMO_CONFIG = AgentConfig(
     interval_seconds=60,
     demo_mode=True,
-    enable_windows_event_logs=False,  # Use demo data instead
+    enable_windows_event_logs=False,
     enable_registry_monitoring=False,
     enable_dns_collection=False,
     enable_process_injection_detection=False,

@@ -16,11 +16,20 @@ export default function SOCDashboard() {
   const [actions, setActions] = useState([]);
   const [events, setEvents] = useState([]);
   const [activeNav, setActiveNav] = useState("dashboard");
-  const [refreshInterval, setRefreshInterval] = useState(5000);
+  const [refreshInterval, setRefreshInterval] = useState(10000);
+  const [eventLimit, setEventLimit] = useState(50);
+  const [alertLimit, setAlertLimit] = useState(25);
+  const [actionLimit, setActionLimit] = useState(25);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [selectedAlert, setSelectedAlert] = useState(null);
   const [lastUpdate, setLastUpdate] = useState(null);
   const [systemStatus, setSystemStatus] = useState("secure");
+  const [agent, setAgent] = useState(null);
+  const [agentBusy, setAgentBusy] = useState("");
+  const [agentIntervalDraft, setAgentIntervalDraft] = useState(60);
+  const [firewallIp, setFirewallIp] = useState("");
+  const [firewallDirection, setFirewallDirection] = useState("both");
+  const [firewallMessage, setFirewallMessage] = useState("");
 
   // Fetch data
   const fetchData = async () => {
@@ -29,9 +38,9 @@ export default function SOCDashboard() {
       const [meData, statusData, detectionData, actionData, eventData] = await Promise.all([
         api.me(),
         api.status(),
-        api.detections(50),
-        api.actions(30),
-        api.events(100)
+        api.detections(alertLimit),
+        api.actions(actionLimit),
+        api.events(eventLimit)
       ]);
 
       setUser(meData);
@@ -39,12 +48,18 @@ export default function SOCDashboard() {
       setDetections(detectionData || []);
       setActions(actionData || []);
       setEvents(eventData || []);
+      setAgent(statusData.agent || null);
+      setAgentIntervalDraft(statusData.agent?.interval_seconds || 60);
       setLastUpdate(new Date());
 
       // Determine system status
-      if (statusData.summary.critical_alerts > 0) {
+      const recentHighSeverity = (detectionData || []).filter((item) =>
+        ["critical", "high"].includes((item.severity || "").toLowerCase())
+      ).length;
+
+      if (recentHighSeverity > 0) {
         setSystemStatus("threat");
-      } else if (statusData.summary.detections > 5) {
+      } else if ((detectionData || []).length > 5) {
         setSystemStatus("warning");
       } else {
         setSystemStatus("secure");
@@ -62,7 +77,7 @@ export default function SOCDashboard() {
     fetchData();
     const timer = setInterval(fetchData, refreshInterval);
     return () => clearInterval(timer);
-  }, [refreshInterval]);
+  }, [refreshInterval, eventLimit, alertLimit, actionLimit]);
 
   const handleLogout = async () => {
     try {
@@ -77,15 +92,77 @@ export default function SOCDashboard() {
     await fetchData();
   };
 
+  const updateAgent = async (name, task) => {
+    try {
+      setAgentBusy(name);
+      const agentData = await task();
+      setAgent(agentData);
+      setAgentIntervalDraft(agentData.interval_seconds || agentIntervalDraft);
+    } finally {
+      setAgentBusy("");
+    }
+  };
+
+  const handlePauseToggle = async () => {
+    if (agent?.paused) {
+      await updateAgent("resume", api.resumeAgent);
+      return;
+    }
+    await updateAgent("pause", api.pauseAgent);
+  };
+
+  const handleIntervalSave = async () => {
+    await updateAgent("interval", () => api.setAgentInterval(Number(agentIntervalDraft)));
+  };
+
+  const updatePositiveNumber = (setter, value, fallback, min, max) => {
+    const next = Number.parseInt(value, 10);
+    if (Number.isNaN(next)) {
+      setter(fallback);
+      return;
+    }
+    setter(Math.min(Math.max(next, min), max));
+  };
+
+  const handleCollectorToggle = async (collectorId, enabled) => {
+    await updateAgent(`collector-${collectorId}`, () => api.setCollectorEnabled(collectorId, enabled));
+  };
+
+  const updateFirewall = async (name, task) => {
+    try {
+      setAgentBusy(name);
+      setFirewallMessage("Applying firewall rule...");
+      const result = await task();
+      setFirewallMessage(result.message || "Firewall updated.");
+      await fetchData();
+    } catch (error) {
+      setFirewallMessage(error.message);
+    } finally {
+      setAgentBusy("");
+    }
+  };
+
+  const handleFirewallBlock = async () => {
+    await updateFirewall("firewall-block", () => api.blockIp(firewallIp, firewallDirection));
+  };
+
+  const handleFirewallUnblock = async () => {
+    await updateFirewall("firewall-unblock", () => api.unblockIp(firewallIp, firewallDirection));
+  };
+
   const formatStatusLabel = () => {
     if (systemStatus === "threat") return "🔴 Under Threat";
     if (systemStatus === "warning") return "🟠 Warning";
     return "🟢 Secure";
   };
 
-  const activeThreats = stats?.summary?.critical_alerts || 0;
-  const totalAlerts = stats?.summary?.detections || 0;
-  const resolvedIncidents = stats?.summary?.actions || 0;
+  const activeThreats = detections.filter((item) =>
+    ["critical", "high"].includes((item.severity || "").toLowerCase())
+  ).length;
+  const recentAlerts = detections.length;
+  const recentResolved = actions.length;
+  const allTimeAlerts = stats?.summary?.detections || 0;
+  const allTimeResolved = stats?.summary?.actions || 0;
 
   if (!user || !stats) {
     return (
@@ -150,7 +227,7 @@ export default function SOCDashboard() {
             >
               <span className="nav-icon">⚠️</span>
               <span className="nav-label">Alerts</span>
-              {totalAlerts > 0 && <span className="nav-badge">{totalAlerts}</span>}
+              {recentAlerts > 0 && <span className="nav-badge">{recentAlerts}</span>}
             </div>
             <div 
               className={`nav-item ${activeNav === "activity" ? "active" : ""}`}
@@ -211,11 +288,11 @@ export default function SOCDashboard() {
                   <div className={`summary-card card-alerts`}>
                     <div className="card-header">
                       <span className="card-icon">🚨</span>
-                      <span className="card-title">Total Alerts</span>
+                      <span className="card-title">Recent Alerts</span>
                     </div>
-                    <div className="card-value">{totalAlerts}</div>
+                    <div className="card-value">{recentAlerts}</div>
                     <div className="card-meta">
-                      Last 50 detections
+                      All-time total: {allTimeAlerts}
                     </div>
                   </div>
 
@@ -224,9 +301,9 @@ export default function SOCDashboard() {
                       <span className="card-icon">✅</span>
                       <span className="card-title">Resolved</span>
                     </div>
-                    <div className="card-value">{resolvedIncidents}</div>
+                    <div className="card-value">{recentResolved}</div>
                     <div className="card-meta">
-                      Automated responses
+                      All-time total: {allTimeResolved}
                     </div>
                   </div>
 
@@ -292,15 +369,155 @@ export default function SOCDashboard() {
               <h2>Settings</h2>
               <div className="settings-content">
                 <div className="setting-group">
-                  <label>Refresh Interval (ms)</label>
+                  <label>Result Refresh Interval (ms)</label>
                   <input 
                     type="number" 
                     value={refreshInterval} 
-                    onChange={(e) => setRefreshInterval(parseInt(e.target.value) || 5000)}
+                    onChange={(event) => updatePositiveNumber(setRefreshInterval, event.target.value, 5000, 1000, 60000)}
                     min="1000"
-                    max="30000"
+                    max="60000"
                     step="1000"
                   />
+                  <p className="setting-help">
+                    Controls how often the dashboard asks for new events, alerts, and response results.
+                  </p>
+                </div>
+
+                <div className="setting-group">
+                  <label>Visible Result Volume</label>
+                  <div className="flow-limit-grid">
+                    <label>
+                      <span>Events</span>
+                      <input
+                        type="number"
+                        value={eventLimit}
+                        onChange={(event) => updatePositiveNumber(setEventLimit, event.target.value, 100, 10, 500)}
+                        min="10"
+                        max="500"
+                        step="10"
+                      />
+                    </label>
+                    <label>
+                      <span>Alerts</span>
+                      <input
+                        type="number"
+                        value={alertLimit}
+                        onChange={(event) => updatePositiveNumber(setAlertLimit, event.target.value, 50, 10, 500)}
+                        min="10"
+                        max="500"
+                        step="10"
+                      />
+                    </label>
+                    <label>
+                      <span>Resolved</span>
+                      <input
+                        type="number"
+                        value={actionLimit}
+                        onChange={(event) => updatePositiveNumber(setActionLimit, event.target.value, 30, 10, 500)}
+                        min="10"
+                        max="500"
+                        step="10"
+                      />
+                    </label>
+                  </div>
+                  <p className="setting-help">
+                    Limits how much recent data is shown per refresh so the interface stays calm while monitoring.
+                  </p>
+                </div>
+
+                <div className="setting-group">
+                  <label>Input Telemetry Flow</label>
+                  <div className="agent-control-row">
+                    <span className={`agent-state ${agent?.paused ? "paused" : "running"}`}>
+                      {agent?.paused ? "Paused" : "Collecting"}
+                    </span>
+                    <button
+                      className="btn-secondary"
+                      onClick={handlePauseToggle}
+                      disabled={!agent || agentBusy === "pause" || agentBusy === "resume"}
+                    >
+                      {agent?.paused ? "Resume Collection" : "Pause Collection"}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="setting-group">
+                  <label>Input Collection Interval (seconds)</label>
+                  <div className="agent-control-row">
+                    <input
+                      type="number"
+                      value={agentIntervalDraft}
+                      onChange={(event) => setAgentIntervalDraft(event.target.value)}
+                      min="5"
+                      max="3600"
+                      step="5"
+                    />
+                    <button
+                      className="btn-secondary"
+                      onClick={handleIntervalSave}
+                      disabled={!agent || agentBusy === "interval"}
+                    >
+                      Save Interval
+                    </button>
+                  </div>
+                  <p className="setting-help">
+                    Controls how often the backend collects from enabled local data sources.
+                  </p>
+                </div>
+
+                <div className="setting-group">
+                  <label>Data Sources</label>
+                  <div className="collector-list">
+                    {(agent?.collectors || []).map((collector) => (
+                      <label className="collector-toggle" key={collector.id}>
+                        <input
+                          type="checkbox"
+                          checked={collector.enabled}
+                          disabled={agentBusy === `collector-${collector.id}`}
+                          onChange={(event) => handleCollectorToggle(collector.id, event.target.checked)}
+                        />
+                        <span>
+                          <strong>{collector.label}</strong>
+                          <small>{collector.class_name}</small>
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="setting-group">
+                  <label>Manual Windows Firewall Block</label>
+                  <div className="firewall-control-grid">
+                    <input
+                      type="text"
+                      value={firewallIp}
+                      onChange={(event) => setFirewallIp(event.target.value)}
+                      placeholder="IP address"
+                    />
+                    <select value={firewallDirection} onChange={(event) => setFirewallDirection(event.target.value)}>
+                      <option value="both">Inbound + outbound</option>
+                      <option value="outbound">Outbound only</option>
+                      <option value="inbound">Inbound only</option>
+                    </select>
+                    <button
+                      className="btn-secondary"
+                      onClick={handleFirewallBlock}
+                      disabled={!firewallIp || agentBusy === "firewall-block"}
+                    >
+                      Block IP
+                    </button>
+                    <button
+                      className="btn-secondary"
+                      onClick={handleFirewallUnblock}
+                      disabled={!firewallIp || agentBusy === "firewall-unblock"}
+                    >
+                      Unblock IP
+                    </button>
+                  </div>
+                  <p className="firewall-note">
+                    Requires the backend terminal to run as Administrator. This creates real Windows Firewall rules.
+                  </p>
+                  {firewallMessage && <p className="firewall-message">{firewallMessage}</p>}
                 </div>
               </div>
             </section>

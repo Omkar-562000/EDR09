@@ -1,8 +1,10 @@
-# Windows Real Data Integration Guide
+# Windows Real Data Integration
 
 ## Overview
 
-The EDR system now integrates **real Windows system data sources** alongside synthetic demo data. This provides enterprise-grade endpoint detection and response capabilities with graceful fallback to demonstrations.
+The EDR system now runs on **real Windows system data sources only**. It continuously collects Windows Event Logs, Registry modifications, DNS queries, and process injection indicators to detect and respond to threats on your Windows system.
+
+**Demo data has been removed.** This is a production-grade endpoint detection system.
 
 ## ✅ Real Data Sources Integrated
 
@@ -86,98 +88,132 @@ Detects suspicious process behaviors and memory attacks:
 
 ## 🔄 Data Collection Flow
 
-### Real Data Mode (Default)
 ```
 Windows System
     ↓
 Windows APIs (Event Logs, Registry, DNS, Process)
     ↓
-EndpointAgent Collectors (Real Data Collectors)
+EndpointAgent Collectors (Real Data Only)
     ↓
 Event Queue
     ↓
 Normalizer → Detection Engine → Response Engine
     ↓
-Dashboard & Storage
+Dashboard & Storage (Real Alerts)
 ```
 
-### Fallback to Demo Mode (When APIs Unavailable)
-```
-If Windows APIs fail or unavailable...
-    ↓
-Demo Data Generator (Synthetic Security Events)
-    ↓
-Event Queue
-    ↓
-Normalizer → Detection Engine → Response Engine
-    ↓
-Dashboard & Storage
-```
+**No synthetic data.** All events are real system activity.
 
-## 🎯 Configuration Options
+## 🎯 Configuration (Real Data Only)
 
-### Default Configuration (Real Windows Data)
+### Default Configuration - Uses Real Windows Data
+
 ```python
 # backend/edr/agent/config.py
 DEFAULT_CONFIG = AgentConfig(
-    interval_seconds=60,           # 60-second collection interval
-    demo_mode=False,               # Use real data
-    enable_windows_event_logs=True,
-    enable_registry_monitoring=True,
-    enable_dns_collection=True,
-    enable_process_injection_detection=True,
-    use_demo_fallback=True,        # Fallback to demo if APIs fail
+    interval_seconds=60,                    # 60-second collection interval
+    demo_mode=False,                        # Real data only
+    enable_windows_event_logs=True,         # Windows Event Logs enabled
+    enable_registry_monitoring=True,        # Registry monitoring enabled
+    enable_dns_collection=True,             # DNS collection enabled
+    enable_process_injection_detection=True,# Process injection detection enabled
+    use_demo_fallback=False,                # NO FALLBACK - real data only
 )
 ```
 
-### Demo Configuration (Synthetic Data)
-```python
-DEMO_CONFIG = AgentConfig(
-    interval_seconds=60,
-    demo_mode=True,                # Use synthetic data
-    enable_windows_event_logs=False,
-    enable_registry_monitoring=False,
-    enable_dns_collection=False,
-    enable_process_injection_detection=False,
-    use_demo_fallback=True,
-)
+**All collectors are enabled and required.** The system expects real Windows data sources.
+
+### Runtime Data Source Controls
+
+The backend now exposes authenticated controls for the local endpoint agent:
+
+```text
+GET  /api/agent
+POST /api/agent/pause
+POST /api/agent/resume
+POST /api/agent/interval
+POST /api/agent/collectors/{collector_id}
 ```
+
+Available `collector_id` values:
+
+```text
+process
+network
+file
+windows_event_log
+registry
+dns
+process_injection
+```
+
+These controls affect collection from the local Windows endpoint only.
+
+### Manual Windows Firewall Blocking
+
+Specific IP addresses can be blocked or unblocked from the dashboard Settings page, or through the API:
+
+```text
+POST /api/firewall/block-ip
+POST /api/firewall/unblock-ip
+```
+
+Example payload:
+
+```json
+{
+  "ip_address": "203.0.113.44",
+  "direction": "both"
+}
+```
+
+Valid `direction` values:
+
+```text
+both
+inbound
+outbound
+```
+
+This creates or removes real Windows Firewall rules named `EDR Block <ip> <direction>`. The backend terminal must be running as Administrator for these actions to succeed.
 
 ## 🚀 How to Use
 
-### Running with Real Windows Data (Default)
+### Start the Real Windows Data Collection System
 
-1. **Start Backend (collects real data):**
+**Terminal 1 - Start Backend (requires Administrator):**
 ```bash
+# Run as Administrator
 cd e:\EDR09
+.venv\Scripts\activate.bat
 python main.py
 ```
 
-The system will:
-- Collect real Windows Event Logs
-- Monitor Registry for persistence
-- Track DNS queries
-- Detect process injection
-- Generate real alerts based on 40+ detection rules
-
-### Running with Demo Data (for Testing/Demos)
-
-Modify the EDRService initialization to enable demo mode:
-
-**In `backend/edr/api/app.py` or `main.py`:**
-```python
-# Instead of:
-edr_service = EDRService(watch_path=watch_path)
-
-# Use demo mode:
-edr_service = EDRService(watch_path=watch_path, demo_mode=True)
+You should see:
+```
+Uvicorn running on http://127.0.0.1:8000
+[INFO] Automated EDR started
+[INFO] Collecting real Windows data from Event Logs, Registry, DNS, Process Injection Detection...
 ```
 
-With demo mode enabled:
-- Generates synthetic security events (failed logins, suspicious processes, C2 activity)
-- Runs every 60 seconds
-- Perfect for demonstrations and testing
-- **Original fake event generators still work** for backward compatibility
+The system will immediately begin:
+- ✅ Collecting Windows Event Logs (Security, System, Application)
+- ✅ Monitoring Registry for persistence mechanisms
+- ✅ Tracking DNS queries for C2 detection
+- ✅ Detecting process injection attacks
+- ✅ Generating real alerts based on 40+ detection rules
+- ✅ Taking automated response actions
+
+**Terminal 2 - Start Frontend:**
+```bash
+cd e:\EDR09\frontend
+npm run dev
+```
+
+**Terminal 3 - View Real-Time Data:**
+Open: **http://localhost:5173**
+
+Login and watch real Windows security events flow into the dashboard every 60 seconds.
 
 ## 📋 Data Retention
 
@@ -199,28 +235,30 @@ Options (configurable in `agent/config.py`):
 
 ## 🛡️ Permissions Required
 
-For full Windows data collection, run Python with Administrator privileges:
+**Administrator privileges required** for full Windows data collection.
+
+Run Python with Administrator rights:
 
 **PowerShell (Admin):**
 ```powershell
-# Activate venv
-& 'e:\EDR09\.venv\Scripts\Activate.ps1'
-
-# Run with admin privileges
-Start-Process powershell -ArgumentList '-NoExit', '-Command', 'cd e:\EDR09; python main.py' -Verb RunAs
+# Run as Administrator
+cd e:\EDR09
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope Process
+& '.venv\Scripts\Activate.ps1'
+python main.py
 ```
 
-**Or use Command Prompt (Admin):**
+**Or Command Prompt (Admin):**
 ```cmd
 cd e:\EDR09
 .venv\Scripts\activate.bat
 python main.py
 ```
 
-Without admin privileges:
-- Windows Event Log collection may fail (graceful fallback to demo data)
-- Registry monitoring may be limited
-- Process injection detection still works
+**Without admin privileges:**
+- Windows Event Log collection will fail with permission errors
+- System will not gracefully degrade - this is intentional
+- Install with admin privileges to fully utilize the system
 
 ## 📊 Example Real Alerts
 
@@ -294,26 +332,34 @@ Original demo files still exist:
 - Useful for scenarios where Windows APIs are completely unavailable
 - Can be enabled alongside real data collection
 
-## 🧪 Testing
+## 🧪 Testing Real Data Collection
 
-### Test Real Data Collection
+### Monitor Real Events in Dashboard
 ```bash
-# Monitor in dashboard as events arrive
-# Go to http://localhost:5173 and watch the Activity Timeline
-# Real Windows events will appear every 60 seconds
+# 1. Backend running with real data collection
+# 2. Frontend running
+# 3. Open http://localhost:5173
+# 4. Watch Activity Timeline for real Windows events
 ```
 
-### Test Demo Fallback
-```python
-# Temporarily comment out Windows collectors in agent/service.py
-# System will automatically fall back to demo data
-```
+Real events will appear as:
+- Failed login attempts (Event ID 4625)
+- Privilege escalation (Event ID 4672)
+- Scheduled task creation (Event ID 4698)
+- Registry modifications
+- DNS queries
+- Process anomalies
 
-### Test Specific Rule
-```bash
-# Manually trigger a failed login in Windows
-# System will detect it via Windows Event Log (Event ID 4625)
-# Alert will appear in dashboard within 60 seconds
+### Force an Alert (Test Detection Rules)
+1. Create a scheduled task manually
+2. System detects it via Windows Event Log
+3. Alert appears in dashboard within 60 seconds
+
+### Check Event Logs
+```
+Windows Key → Event Viewer
+→ Windows Logs → Security
+→ Find Event IDs 4625, 4672, 4698, etc.
 ```
 
 ## 📈 Performance Metrics
@@ -328,22 +374,38 @@ Original demo files still exist:
 ## 🚨 Troubleshooting
 
 ### No Windows events appearing
-1. Check if running as Administrator
-2. Check Windows Event Log permissions
-3. System will automatically fall back to demo data
-4. Check `backend/data/logs/events.jsonl` for "using_demo_data_fallback" entries
+1. **Check Administrator privileges:**
+   - Right-click Command Prompt → "Run as administrator"
+   - Without admin, Event Log access will fail
+   
+2. **Check Windows Event Logs directly:**
+   - Windows Key → Event Viewer
+   - Windows Logs → Security
+   - Look for events with IDs: 4625, 4672, 4698, 4732, 4735, 4781
+   
+3. **Check logs for errors:**
+   - See `backend/data/logs/events.jsonl` for all collected events
+   - See `backend/data/logs/detections.jsonl` for alerts
+   - Look for error messages in terminal output
 
 ### High CPU usage
 1. Reduce collection interval (increase `interval_seconds` in config)
 2. Disable specific collectors if not needed
-3. Reduce Event Log query size (modify event_ids list)
+3. Reduce Event Log query size (modify event_ids list in collectors)
 
 ### Missing alerts
-1. Verify detection rules are loaded: Check `backend/config/rules.json`
-2. Verify events are being collected: Check JSONL logs
-3. Try demo mode to verify detection engine works
+1. Verify detection rules are loaded: `backend/config/rules.json`
+2. Verify events are being collected: Check `backend/data/logs/events.jsonl`
+3. Verify detection engine is running: Check terminal output for errors
+4. Create a test event: 
+   - Open PowerShell as admin
+   - Run: `Get-WinEvent -LogName Security | Select-Object -First 10`
+   - System should detect and alert
 
-## 🔗 Integration Points
+### Authentication errors when running
+- Run terminal as Administrator
+- Check user permissions for Event Log access
+- Verify .venv is activated
 
 **Windows Data → Detection Rules → Response Actions:**
 
@@ -377,16 +439,17 @@ Original demo files still exist:
 
 ## ✨ Key Features
 
-✅ Real Windows data collection (Event Logs, Registry, DNS, Process Injection)  
-✅ 40+ specialized detection rules for Windows threats  
-✅ Graceful fallback to demo data when APIs unavailable  
+✅ Real Windows Event Log collection (no demo data)  
+✅ Registry monitoring for persistence detection  
+✅ DNS query analysis for C2 detection  
+✅ Process injection attack detection  
+✅ 40+ specialized Windows threat detection rules  
 ✅ 60-second collection interval (low overhead)  
-✅ Hybrid agent architecture (local + remote ready)  
-✅ Demo mode for demonstrations and testing  
-✅ Full backward compatibility with existing fake data generators  
 ✅ MITRE ATT&CK framework mapping  
-✅ Enterprise-grade EDR capabilities  
+✅ Automated response actions  
+✅ Production-grade EDR system  
+✅ Enterprise-ready threat detection  
 
 ---
 
-**Ready to detect real threats on your Windows system!** 🛡️
+**Your system is now running a real, functional EDR that monitors your Windows machine for actual security threats!** 🛡️

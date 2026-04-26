@@ -31,7 +31,7 @@ class ResponseEngine:
         target = detection.event.host
         details = {"rule_id": detection.rule_id, "rule_name": detection.rule_name}
         if action_name == "kill_process":
-            process_name = payload.get("process_name", "unknown")
+            process_name = payload.get("process_name") or payload.get("process") or "unknown"
             self.terminated_processes.append(process_name)
             return ResponseAction(
                 action_type=action_name,
@@ -66,5 +66,31 @@ class ResponseEngine:
                 target=target,
                 detection_id=detection.detection_id,
                 details={**details, "message": detection.description},
+            )
+        if action_name == "block_domain":
+            domain = payload.get("domain") or payload.get("query") or payload.get("dns_activity") or "unknown"
+            return ResponseAction(
+                action_type=action_name,
+                status="simulated_success",
+                target=str(domain),
+                detection_id=detection.detection_id,
+                details={**details, "message": f"Domain {domain} blocked"},
+            )
+        if action_name == "delete_file":
+            path = payload.get("path") or payload.get("filename") or "unknown"
+            return ResponseAction(
+                action_type=action_name,
+                status="simulated_success",
+                target=str(path),
+                detection_id=detection.detection_id,
+                details={**details, "message": f"File {path} deleted"},
+            )
+        if action_name in {"monitor", "investigate"}:
+            return ResponseAction(
+                action_type=action_name,
+                status="queued",
+                target=target,
+                detection_id=detection.detection_id,
+                details={**details, "message": f"{action_name.title()} workflow queued"},
             )
         return None

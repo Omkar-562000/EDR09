@@ -51,7 +51,29 @@ export default function ActivityTimeline({ events, fullScreen = false }) {
 
   const groupedEvents = useMemo(() => {
     const groups = {};
-    [...(events || [])].reverse().forEach((event) => {
+    const compacted = new Map();
+
+    [...(events || [])].forEach((event) => {
+      const payload = event.payload || {};
+      const key = [
+        event.event_type,
+        event.title,
+        event.source,
+        payload.process_name || payload.remote_ip || payload.event_id || payload.path || ""
+      ].join("|");
+      const existing = compacted.get(key);
+      if (!existing) {
+        compacted.set(key, { ...event, occurrence_count: 1, last_seen: event.timestamp });
+        return;
+      }
+      existing.occurrence_count += 1;
+      if (new Date(event.timestamp || 0) > new Date(existing.last_seen || 0)) {
+        existing.last_seen = event.timestamp;
+        existing.timestamp = event.timestamp;
+      }
+    });
+
+    Array.from(compacted.values()).reverse().forEach((event) => {
       const date = formatDate(event.timestamp);
       if (!groups[date]) {
         groups[date] = [];
@@ -67,7 +89,7 @@ export default function ActivityTimeline({ events, fullScreen = false }) {
     <section className={`panel activity-timeline ${fullScreen ? "fullscreen" : ""}`}>
       <div className="panel-header">
         <h2>Activity Timeline</h2>
-        <span className="event-count">{events?.length || 0} events</span>
+        <span className="event-count">{events?.length || 0} recent events</span>
       </div>
 
       <div className="timeline-container">
@@ -106,6 +128,9 @@ export default function ActivityTimeline({ events, fullScreen = false }) {
                         </div>
                         <div className="event-title">
                           {event.title || event.description || event.message || "System Event"}
+                          {event.occurrence_count > 1 && (
+                            <span className="occurrence-chip">{event.occurrence_count}x</span>
+                          )}
                         </div>
                         {event.details && (
                           <div className="event-details">

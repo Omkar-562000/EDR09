@@ -59,6 +59,52 @@ export default function AlertsPanel({ detections, onSelectAlert, fullScreen = fa
     return result;
   }, [detections, filterSeverity, filterStatus, searchTerm, sortBy]);
 
+  const groupedAlerts = useMemo(() => {
+    const groups = new Map();
+
+    filtered.forEach((detection) => {
+      const payload = detection.event?.payload || {};
+      const key = [
+        detection.rule_id || detection.rule_name,
+        detection.severity,
+        detection.event?.event_type,
+        detection.event?.title,
+        payload.remote_ip || payload.process_name || payload.process || payload.event_id || ""
+      ].join("|");
+
+      const existing = groups.get(key);
+      if (!existing) {
+        groups.set(key, {
+          ...detection,
+          occurrence_count: 1,
+          first_seen: detection.timestamp,
+          last_seen: detection.timestamp
+        });
+        return;
+      }
+
+      existing.occurrence_count += 1;
+      if (new Date(detection.timestamp || 0) > new Date(existing.last_seen || 0)) {
+        existing.last_seen = detection.timestamp;
+        existing.detection_id = detection.detection_id;
+        existing.timestamp = detection.timestamp;
+        existing.event = detection.event;
+      }
+      if (new Date(detection.timestamp || 0) < new Date(existing.first_seen || 0)) {
+        existing.first_seen = detection.timestamp;
+      }
+    });
+
+    return Array.from(groups.values()).sort((a, b) => {
+      if (sortBy === "severity") {
+        const aSev = severityMap[(a.severity || "low").toLowerCase()] || 0;
+        const bSev = severityMap[(b.severity || "low").toLowerCase()] || 0;
+        if (bSev !== aSev) return bSev - aSev;
+      }
+      return new Date(b.last_seen || 0) - new Date(a.last_seen || 0);
+    });
+  }, [filtered, sortBy]);
+
   const getSeverityClass = (severity) => {
     const level = (severity || "low").toLowerCase();
     if (level === "critical" || level === "high") return "severity-critical";
@@ -119,7 +165,7 @@ export default function AlertsPanel({ detections, onSelectAlert, fullScreen = fa
       </div>
 
       <div className="alerts-table-container">
-        {filtered.length === 0 ? (
+        {groupedAlerts.length === 0 ? (
           <div className="empty-state">
             <span className="empty-icon">🎯</span>
             <p>No alerts match your criteria</p>
@@ -138,7 +184,7 @@ export default function AlertsPanel({ detections, onSelectAlert, fullScreen = fa
               </tr>
             </thead>
             <tbody>
-              {filtered.map((detection, idx) => (
+              {groupedAlerts.map((detection, idx) => (
                 <tr 
                   key={idx} 
                   className={`alert-row ${getSeverityClass(detection.severity)}`}
@@ -146,14 +192,19 @@ export default function AlertsPanel({ detections, onSelectAlert, fullScreen = fa
                   style={{ cursor: onSelectAlert ? "pointer" : "default" }}
                 >
                   <td className="cell-id">{detection.detection_id?.substring(0, 8) || `ALT-${idx}`}</td>
-                  <td className="cell-threat">{detection.rule_name || detection.description || "Unknown"}</td>
+                  <td className="cell-threat">
+                    {detection.rule_name || detection.description || "Unknown"}
+                    {detection.occurrence_count > 1 && (
+                      <span className="occurrence-chip">{detection.occurrence_count}x</span>
+                    )}
+                  </td>
                   <td className="cell-severity">
                     <span className={`severity-badge ${getSeverityClass(detection.severity)}`}>
                       {(detection.severity || "low").toUpperCase()}
                     </span>
                   </td>
                   <td className="cell-process">{detection.event?.title || detection.event?.payload?.process_name || "System"}</td>
-                  <td className="cell-timestamp">{formatTime(detection.timestamp)}</td>
+                  <td className="cell-timestamp">{formatTime(detection.last_seen || detection.timestamp)}</td>
                   <td className="cell-status">
                     <span className={`status-badge status-active`}>
                       ACTIVE
@@ -177,7 +228,7 @@ export default function AlertsPanel({ detections, onSelectAlert, fullScreen = fa
         )}
       </div>
       <div className="panel-footer">
-        <span>{filtered.length} of {detections.length} alerts</span>
+        <span>{groupedAlerts.length} grouped alerts from {filtered.length} recent matches</span>
       </div>
     </section>
   );

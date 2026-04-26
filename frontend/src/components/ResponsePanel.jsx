@@ -28,8 +28,25 @@ export default function ResponsePanel({ actions }) {
   };
 
   const sortedActions = useMemo(() => {
-    return [...(actions || [])].sort((a, b) => 
-      new Date(b.timestamp || 0) - new Date(a.timestamp || 0)
+    const groups = new Map();
+
+    [...(actions || [])].forEach((action) => {
+      const key = [action.action_type, action.status, action.target].join("|");
+      const existing = groups.get(key);
+      if (!existing) {
+        groups.set(key, { ...action, occurrence_count: 1, last_seen: action.timestamp });
+        return;
+      }
+      existing.occurrence_count += 1;
+      if (new Date(action.timestamp || 0) > new Date(existing.last_seen || 0)) {
+        existing.last_seen = action.timestamp;
+        existing.timestamp = action.timestamp;
+        existing.details = action.details;
+      }
+    });
+
+    return Array.from(groups.values()).sort((a, b) =>
+      new Date(b.last_seen || 0) - new Date(a.last_seen || 0)
     );
   }, [actions]);
 
@@ -62,6 +79,9 @@ export default function ResponsePanel({ actions }) {
                     <div className="action-header">
                       <span className="action-type">
                         {(actionType).toUpperCase()}
+                        {action.occurrence_count > 1 && (
+                          <span className="occurrence-chip">{action.occurrence_count}x</span>
+                        )}
                       </span>
                       <span className="action-time">
                         {formatTime(action.timestamp)}
@@ -91,7 +111,7 @@ export default function ResponsePanel({ actions }) {
       </div>
 
       <div className="panel-footer">
-        <span>{sortedActions.length} actions recorded</span>
+        <span>{sortedActions.length} grouped actions from {actions?.length || 0} recent records</span>
       </div>
     </section>
   );

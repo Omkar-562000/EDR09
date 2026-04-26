@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import defaultdict, deque
 from datetime import datetime, timedelta, timezone
+import math
 from typing import Any
 
 from backend.edr.detection.rules import Rule, RuleLoader
@@ -40,10 +41,9 @@ class DetectionEngine:
     def _matches_rule(self, rule: Rule, event: Event) -> bool:
         payload = event.payload
         if rule.condition == "contains":
-            target = str(payload.get(rule.match_field or "", "")).lower()
-            return str(rule.value).lower() in target
+            return self._contains_any(payload.get(rule.match_field or ""), rule.value)
         if rule.condition == "equals":
-            return payload.get(rule.match_field or "") == rule.value
+            return self._values_equal(payload.get(rule.match_field or ""), rule.value)
         if rule.condition == "in_list":
             target = str(payload.get(rule.match_field or "", "")).lower()
             return target in {str(item).lower() for item in (rule.value or [])}
@@ -56,7 +56,70 @@ class DetectionEngine:
             if not remote_ip:
                 return False
             return remote_ip not in set(rule.value or [])
+        if rule.condition == "event_id_match":
+            return self._values_equal(payload.get(rule.match_field or "event_id"), rule.value)
+        if rule.condition in {"registry_persistence_check", "registry_path_contains"}:
+            return self._contains_any(payload.get(rule.match_field or "registry_path"), rule.value)
+        if rule.condition == "dns_c2_check":
+            return self._contains_any(self._first_present(payload, ["domain", "query", "dns_activity"]), rule.value)
+        if rule.condition == "dns_entropy_high":
+            domain = str(self._first_present(payload, [rule.match_field or "domain", "query", "dns_activity"]) or "")
+            return bool(domain) and self._shannon_entropy(domain) >= 3.8 and len(domain) >= 24
+        if rule.condition == "injection_parent_child":
+            return self._contains_any(payload.get(rule.match_field or "parent_process"), rule.value)
+        if rule.condition == "command_line_contains":
+            return self._contains_any(payload.get(rule.match_field or "cmdline"), rule.value)
+        if rule.condition == "hollow_process_check":
+            process = self._first_present(payload, [rule.match_field or "process_name", "process"])
+            cmdline = str(payload.get("cmdline", "")).lower()
+            suspicious_cmd = any(token in cmdline for token in ("-enc", "-nop", "hidden", "iex", "invoke-", "cmd.exe", "powershell"))
+            return self._contains_any(process, rule.value) and suspicious_cmd
+        if rule.condition == "network_share_access":
+            return self._contains_any(payload.get(rule.match_field or "remote_path"), rule.value)
+        if rule.condition == "large_outbound_transfer":
+            return self._number(payload.get(rule.match_field or "bytes_sent")) >= self._number(rule.value)
+        if rule.condition == "cloud_sync_unusual":
+            return self._contains_any(payload.get(rule.match_field or "process_name"), rule.value)
+        if rule.condition == "mass_file_encryption":
+            extension = self._first_present(payload, [rule.match_field or "file_extension", "extension"])
+            path = self._first_present(payload, ["path", "filename"])
+            return self._contains_any(extension, rule.value) or self._contains_any(path, rule.value)
+        if rule.condition == "lsass_memory_access":
+            return self._contains_any(payload.get(rule.match_field or "target_process"), rule.value)
         return False
+
+    def _contains_any(self, target: Any, expected: Any) -> bool:
+        if target is None:
+            return False
+        target_text = str(target).lower()
+        if isinstance(expected, list):
+            return any(str(item).lower() in target_text for item in expected)
+        return str(expected).lower() in target_text
+
+    def _values_equal(self, left: Any, right: Any) -> bool:
+        if left == right:
+            return True
+        return str(left).lower() == str(right).lower()
+
+    def _first_present(self, payload: dict[str, Any], fields: list[str]) -> Any:
+        for field in fields:
+            value = payload.get(field)
+            if value not in (None, ""):
+                return value
+        return None
+
+    def _number(self, value: Any) -> float:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return 0.0
+
+    def _shannon_entropy(self, value: str) -> float:
+        if not value:
+            return 0.0
+        frequencies = {char: value.count(char) for char in set(value)}
+        length = len(value)
+        return -sum((count / length) * math.log2(count / length) for count in frequencies.values())
 
     def _failed_login_threshold(self, rule: Rule, event: Event) -> bool:
         if event.event_type != EventType.AUTH:
