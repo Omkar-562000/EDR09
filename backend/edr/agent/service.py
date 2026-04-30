@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from backend.edr.agent.collectors import FileCollector, NetworkCollector, ProcessCollector
+from backend.edr.agent.collectors import CommandActivityCollector, FileCollector, NetworkCollector, ProcessCollector
 from backend.edr.agent.windows_collectors import (
     WindowsEventLogCollector,
     RegistryCollector,
@@ -47,6 +47,7 @@ class EndpointAgent:
         # Real data collectors
         self.collectors: list[CollectorSlot] = [
             CollectorSlot("process", "Processes", ProcessCollector()),
+            CollectorSlot("command", "Command Activity", CommandActivityCollector()),
             CollectorSlot("network", "Network Connections", NetworkCollector()),
             CollectorSlot("file", "Watched Files", FileCollector(watch_path)),
             CollectorSlot("windows_event_log", "Windows Event Logs", WindowsEventLogCollector()),

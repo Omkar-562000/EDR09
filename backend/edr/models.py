@@ -22,6 +22,7 @@ class EventType(str, Enum):
     REGISTRY_CHANGE = "registry_change"
     DNS_QUERY = "dns_query"
     PROCESS_INJECTION = "process_injection"
+    COMMAND = "command"
 
 
 class Severity(str, Enum):

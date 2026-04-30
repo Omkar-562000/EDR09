@@ -1549,6 +1549,12 @@ summary-card small,
   line-height: 1.45;
 }
 
+.setting-message {
+  margin: 0;
+  color: var(--accent);
+  font-size: 0.9rem;
+}
+
 .flow-limit-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1629,7 +1635,7 @@ summary-card small,
 
 .firewall-control-grid {
   display: grid;
-  grid-template-columns: minmax(180px, 1fr) minmax(170px, 220px) auto auto;
+  grid-template-columns: minmax(180px, 1fr) minmax(170px, 220px) auto auto auto;
   gap: 0.75rem;
   align-items: center;
 }

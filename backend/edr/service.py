@@ -13,6 +13,7 @@ from backend.edr.pipeline.normalizer import EventNormalizer
 from backend.edr.pipeline.queue_manager import EventQueue
 from backend.edr.response.engine import ResponseEngine
 from backend.edr.response.firewall import WindowsFirewallController
+from backend.edr.models import ResponseAction
 
 
 class EDRService:
@@ -56,7 +57,7 @@ class EDRService:
         await self.event_queue.publish(raw_event)
 
     async def collect_once(self) -> None:
-        await self.agent.collect_once(force=True)
+        await self.agent.collect_once()
 
     def agent_status(self) -> dict[str, Any]:
         return self.agent.status()
@@ -80,12 +81,41 @@ class EDRService:
     def block_ip(self, ip_address: str, direction: str) -> dict[str, str]:
         result = self.firewall.block_ip(ip_address, direction)
         self.response_engine.blocked_ips.add(result.ip_address)
+        self.storage.log_action(
+            ResponseAction(
+                action_type="firewall_block_ip",
+                status="completed",
+                target=result.ip_address,
+                detection_id="manual-firewall",
+                details={
+                    "direction": result.direction,
+                    "message": result.message,
+                    "real_action": True,
+                },
+            )
+        )
         return result.to_dict()
 
     def unblock_ip(self, ip_address: str, direction: str) -> dict[str, str]:
         result = self.firewall.unblock_ip(ip_address, direction)
         self.response_engine.blocked_ips.discard(result.ip_address)
+        self.storage.log_action(
+            ResponseAction(
+                action_type="firewall_unblock_ip",
+                status="completed",
+                target=result.ip_address,
+                detection_id="manual-firewall",
+                details={
+                    "direction": result.direction,
+                    "message": result.message,
+                    "real_action": True,
+                },
+            )
+        )
         return result.to_dict()
+
+    def check_ip_block(self, ip_address: str, direction: str) -> dict[str, object]:
+        return self.firewall.check_ip(ip_address, direction)
 
     async def _run_pipeline(self) -> None:
         while True:

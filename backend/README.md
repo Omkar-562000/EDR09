@@ -178,22 +178,7 @@ In autonomous mode, the user can:
 - choose a scenario or let the app auto-pick one
 - click `Run Autonomous Cycle`
 
-This mode allows the backend to:
-
-- collect telemetry
-- run a scenario
-- generate detections
-- trigger automated responses
-
-with one action.
-
-## Built-In Simulation Actions
-
-The backend can simulate:
-
-- failed login burst
-- unauthorized outbound connection
-- suspicious process execution
+The active backend uses real local endpoint telemetry only. Simulation and custom event injection endpoints are not part of the runtime API.
 
 ## Authentication
 
@@ -211,15 +196,19 @@ Main auth routes:
 - `GET /api/health`
 - `GET /api/status`
 - `GET /api/control`
-- `POST /api/control/mode`
-- `POST /api/control/simulate`
-- `POST /api/control/autonomous-run`
+- `GET /api/agent`
+- `POST /api/agent/pause`
+- `POST /api/agent/resume`
+- `POST /api/agent/interval`
+- `POST /api/agent/collectors/{collector_id}`
 - `GET /api/events`
 - `GET /api/detections`
 - `GET /api/actions`
 - `POST /api/collect`
-- `POST /api/ingest`
 - `POST /api/reload-rules`
+- `POST /api/firewall/block-ip`
+- `POST /api/firewall/unblock-ip`
+- `POST /api/firewall/check-ip`
 
 ## Rule Configuration
 
@@ -262,7 +251,8 @@ For local development, the frontend should still be run separately from `fronten
 
 - the backend and frontend are intentionally separated now
 - the older static `dashboard/` implementation is no longer the primary UI
-- response actions are still simulated, not enforced on the host OS
+- detections are calculated from real telemetry
+- resolved response actions are real manual firewall operations
 - the backend continues using SQLite for portability and easier local use
 
 ## Verified Status

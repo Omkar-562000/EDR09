@@ -27,6 +27,8 @@ export default function SOCDashboard() {
   const [agent, setAgent] = useState(null);
   const [agentBusy, setAgentBusy] = useState("");
   const [agentIntervalDraft, setAgentIntervalDraft] = useState(60);
+  const [isEditingAgentInterval, setIsEditingAgentInterval] = useState(false);
+  const [agentMessage, setAgentMessage] = useState("");
   const [firewallIp, setFirewallIp] = useState("");
   const [firewallDirection, setFirewallDirection] = useState("both");
   const [firewallMessage, setFirewallMessage] = useState("");
@@ -49,7 +51,9 @@ export default function SOCDashboard() {
       setActions(actionData || []);
       setEvents(eventData || []);
       setAgent(statusData.agent || null);
-      setAgentIntervalDraft(statusData.agent?.interval_seconds || 60);
+      if (!isEditingAgentInterval) {
+        setAgentIntervalDraft(statusData.agent?.interval_seconds || 60);
+      }
       setLastUpdate(new Date());
 
       // Determine system status
@@ -95,9 +99,13 @@ export default function SOCDashboard() {
   const updateAgent = async (name, task) => {
     try {
       setAgentBusy(name);
+      setAgentMessage("");
       const agentData = await task();
       setAgent(agentData);
       setAgentIntervalDraft(agentData.interval_seconds || agentIntervalDraft);
+      setAgentMessage("Agent settings updated.");
+    } catch (error) {
+      setAgentMessage(error.message);
     } finally {
       setAgentBusy("");
     }
@@ -113,6 +121,7 @@ export default function SOCDashboard() {
 
   const handleIntervalSave = async () => {
     await updateAgent("interval", () => api.setAgentInterval(Number(agentIntervalDraft)));
+    setIsEditingAgentInterval(false);
   };
 
   const updatePositiveNumber = (setter, value, fallback, min, max) => {
@@ -150,6 +159,14 @@ export default function SOCDashboard() {
     await updateFirewall("firewall-unblock", () => api.unblockIp(firewallIp, firewallDirection));
   };
 
+  const handleFirewallCheck = async () => {
+    await updateFirewall("firewall-check", async () => {
+      const result = await api.checkIp(firewallIp, firewallDirection);
+      const state = result.blocked ? "blocked" : "not blocked";
+      return { message: `${result.ip_address} is ${state} for ${result.direction}.` };
+    });
+  };
+
   const formatStatusLabel = () => {
     if (systemStatus === "threat") return "🔴 Under Threat";
     if (systemStatus === "warning") return "🟠 Warning";
@@ -162,7 +179,7 @@ export default function SOCDashboard() {
   const recentAlerts = detections.length;
   const recentResolved = actions.length;
   const allTimeAlerts = stats?.summary?.detections || 0;
-  const allTimeResolved = stats?.summary?.actions || 0;
+  const allTimeResolved = stats?.summary?.real_actions || 0;
 
   if (!user || !stats) {
     return (
@@ -439,6 +456,7 @@ export default function SOCDashboard() {
                       {agent?.paused ? "Resume Collection" : "Pause Collection"}
                     </button>
                   </div>
+                  {agentMessage && <p className="setting-message">{agentMessage}</p>}
                 </div>
 
                 <div className="setting-group">
@@ -447,6 +465,8 @@ export default function SOCDashboard() {
                     <input
                       type="number"
                       value={agentIntervalDraft}
+                      onFocus={() => setIsEditingAgentInterval(true)}
+                      onBlur={() => setIsEditingAgentInterval(false)}
                       onChange={(event) => setAgentIntervalDraft(event.target.value)}
                       min="5"
                       max="3600"
@@ -512,6 +532,13 @@ export default function SOCDashboard() {
                       disabled={!firewallIp || agentBusy === "firewall-unblock"}
                     >
                       Unblock IP
+                    </button>
+                    <button
+                      className="btn-secondary"
+                      onClick={handleFirewallCheck}
+                      disabled={!firewallIp || agentBusy === "firewall-check"}
+                    >
+                      Check IP
                     </button>
                   </div>
                   <p className="firewall-note">

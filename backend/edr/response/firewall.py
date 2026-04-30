@@ -36,11 +36,13 @@ class WindowsFirewallController:
         for firewall_direction in self._directions(direction):
             rule_name = self._rule_name(ip_address, firewall_direction)
             self._run_powershell(
-                [
-                    "if (-not (Get-NetFirewallRule -DisplayName $args[0] -ErrorAction SilentlyContinue)) {",
-                    "New-NetFirewallRule -DisplayName $args[0] -Direction $args[1] -RemoteAddress $args[2] -Action Block | Out-Null",
-                    "}",
-                ],
+                (
+                    "& { param($RuleName, $Direction, $RemoteAddress) "
+                    "if (-not (Get-NetFirewallRule -DisplayName $RuleName -ErrorAction SilentlyContinue)) { "
+                    "New-NetFirewallRule -DisplayName $RuleName -Direction $Direction -RemoteAddress $RemoteAddress "
+                    "-Action Block | Out-Null "
+                    "} }"
+                ),
                 [rule_name, firewall_direction, ip_address],
             )
 
@@ -59,7 +61,11 @@ class WindowsFirewallController:
         for firewall_direction in self._directions(direction):
             rule_name = self._rule_name(ip_address, firewall_direction)
             self._run_powershell(
-                ["Remove-NetFirewallRule -DisplayName $args[0] -ErrorAction SilentlyContinue"],
+                (
+                    "& { param($RuleName) "
+                    "Remove-NetFirewallRule -DisplayName $RuleName -ErrorAction SilentlyContinue "
+                    "}"
+                ),
                 [rule_name],
             )
 
@@ -69,6 +75,24 @@ class WindowsFirewallController:
             direction=direction,
             message=f"Windows Firewall rule removed for {ip_address}",
         )
+
+    def check_ip(self, ip_address: str, direction: str = "both") -> dict[str, object]:
+        ip_address = self._validate_ip(ip_address)
+        direction = self._validate_direction(direction)
+        self._require_windows()
+
+        rules: list[dict[str, object]] = []
+        for firewall_direction in self._directions(direction):
+            rule_name = self._rule_name(ip_address, firewall_direction)
+            exists = self._rule_exists(rule_name)
+            rules.append({"name": rule_name, "direction": firewall_direction, "exists": exists})
+
+        return {
+            "ip_address": ip_address,
+            "direction": direction,
+            "blocked": any(rule["exists"] for rule in rules),
+            "rules": rules,
+        }
 
     def _validate_ip(self, ip_address: str) -> str:
         try:
@@ -94,7 +118,7 @@ class WindowsFirewallController:
     def _rule_name(self, ip_address: str, direction: str) -> str:
         return f"{self.rule_prefix} {ip_address} {direction}"
 
-    def _run_powershell(self, script_lines: list[str], args: list[str]) -> None:
+    def _rule_exists(self, rule_name: str) -> bool:
         completed = subprocess.run(
             [
                 "powershell",
@@ -102,7 +126,32 @@ class WindowsFirewallController:
                 "-ExecutionPolicy",
                 "Bypass",
                 "-Command",
-                " ".join(script_lines),
+                (
+                    "& { param($RuleName) "
+                    "if (Get-NetFirewallRule -DisplayName $RuleName -ErrorAction SilentlyContinue) { 'true' } "
+                    "else { 'false' } "
+                    "}"
+                ),
+                rule_name,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if completed.returncode != 0:
+            error = completed.stderr.strip() or completed.stdout.strip() or "Firewall check failed"
+            raise RuntimeError(error)
+        return completed.stdout.strip().lower() == "true"
+
+    def _run_powershell(self, script: str, args: list[str]) -> None:
+        completed = subprocess.run(
+            [
+                "powershell",
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-Command",
+                script,
                 *args,
             ],
             capture_output=True,

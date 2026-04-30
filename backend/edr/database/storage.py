@@ -193,6 +193,9 @@ class Storage:
                 "events": conn.execute("SELECT COUNT(*) FROM events").fetchone()[0],
                 "detections": conn.execute("SELECT COUNT(*) FROM detections").fetchone()[0],
                 "actions": conn.execute("SELECT COUNT(*) FROM actions").fetchone()[0],
+                "real_actions": conn.execute(
+                    "SELECT COUNT(*) FROM actions WHERE details LIKE '%\"real_action\": true%'"
+                ).fetchone()[0],
                 "critical_alerts": conn.execute(
                     "SELECT COUNT(*) FROM detections WHERE severity = 'critical'"
                 ).fetchone()[0],

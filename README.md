@@ -227,31 +227,23 @@ GET /api/status
 # Get control state
 GET /api/control
 
-# Set control mode (manual/autonomous)
-POST /api/control/mode
-{
-  "mode": "autonomous"
-}
-
 # Trigger event collection
 POST /api/collect
 
-# Simulate threat scenario
-POST /api/control/simulate
+# Pause/resume real endpoint collection
+POST /api/agent/pause
+POST /api/agent/resume
+
+# Change real endpoint collection interval
+POST /api/agent/interval
 {
-  "scenario": "auto"  # or: auth_burst, outbound, process
+  "interval_seconds": 60
 }
 
-# Ingest custom event
-POST /api/ingest
+# Enable/disable a real data source
+POST /api/agent/collectors/{collector_id}
 {
-  "source": "custom",
-  "event_type": "process",
-  "title": "suspicious_process",
-  "payload": {
-    "process_name": "malware.exe",
-    "pid": 1234
-  }
+  "enabled": true
 }
 
 # Reload detection rules
@@ -387,11 +379,11 @@ curl -X POST http://127.0.0.1:8000/api/collect \
 curl http://127.0.0.1:8000/api/events?limit=10 \
   -H "Cookie: edr_session=<your_session_token>"
 
-# Simulate threat scenario
-curl -X POST http://127.0.0.1:8000/api/control/simulate \
+# Check a real Windows Firewall block rule
+curl -X POST http://127.0.0.1:8000/api/firewall/check-ip \
   -H "Content-Type: application/json" \
   -H "Cookie: edr_session=<your_session_token>" \
-  -d '{"scenario": "auth_burst"}'
+  -d '{"ip_address": "8.8.8.8", "direction": "both"}'
 ```
 
 ### Running Tests

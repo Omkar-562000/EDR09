@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
 import os
 import socket
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -34,6 +36,126 @@ class ProcessCollector:
                 )
             except (psutil.NoSuchProcess, psutil.AccessDenied):
                 continue
+        return events
+
+
+class CommandActivityCollector:
+    """Collect visible command-line activity from live processes and Windows 4688 logs when available."""
+
+    command_processes = {
+        "cmd.exe",
+        "powershell.exe",
+        "pwsh.exe",
+        "ipconfig.exe",
+        "whoami.exe",
+        "net.exe",
+        "net1.exe",
+        "netstat.exe",
+        "tasklist.exe",
+        "reg.exe",
+        "schtasks.exe",
+        "wmic.exe",
+        "certutil.exe",
+        "bitsadmin.exe",
+        "curl.exe",
+        "rundll32.exe",
+        "mshta.exe",
+    }
+
+    def __init__(self) -> None:
+        self._seen_live_commands: set[str] = set()
+        self._last_4688_record_id = 0
+
+    def collect(self) -> list[dict[str, Any]]:
+        events = self._collect_live_process_commands()
+        events.extend(self._collect_windows_4688_commands())
+        return events
+
+    def _collect_live_process_commands(self) -> list[dict[str, Any]]:
+        events: list[dict[str, Any]] = []
+        for proc in psutil.process_iter(["pid", "name", "cmdline", "username", "ppid"]):
+            try:
+                info = proc.info
+                process_name = (info.get("name") or "").lower()
+                if process_name not in self.command_processes:
+                    continue
+
+                command_line = " ".join(info.get("cmdline") or [])
+                command_key = f"{info.get('pid')}:{command_line}"
+                if command_key in self._seen_live_commands:
+                    continue
+                self._seen_live_commands.add(command_key)
+
+                events.append(
+                    {
+                        "source": "command_collector",
+                        "event_type": EventType.COMMAND.value,
+                        "title": "command_observed",
+                        "payload": {
+                            "pid": info.get("pid"),
+                            "ppid": info.get("ppid"),
+                            "process_name": info.get("name"),
+                            "command_line": command_line or info.get("name"),
+                            "username": info.get("username"),
+                            "capture_method": "live_process",
+                        },
+                    }
+                )
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+        return events
+
+    def _collect_windows_4688_commands(self) -> list[dict[str, Any]]:
+        events: list[dict[str, Any]] = []
+        command = [
+            "powershell",
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            (
+                "Get-WinEvent -FilterHashtable @{LogName='Security'; ID=4688} -MaxEvents 20 "
+                "-ErrorAction SilentlyContinue | "
+                "Select-Object TimeCreated,RecordId,Message | ConvertTo-Json -Depth 3"
+            ),
+        ]
+        try:
+            result = subprocess.run(command, capture_output=True, text=True, timeout=5)
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            return events
+
+        if result.returncode != 0 or not result.stdout.strip():
+            return events
+
+        try:
+            payload = json.loads(result.stdout)
+        except json.JSONDecodeError:
+            return events
+
+        records = payload if isinstance(payload, list) else [payload]
+        records.sort(key=lambda item: int(item.get("RecordId") or 0))
+        for record in records:
+            record_id = int(record.get("RecordId") or 0)
+            if record_id <= self._last_4688_record_id:
+                continue
+            self._last_4688_record_id = max(self._last_4688_record_id, record_id)
+            message = record.get("Message") or ""
+            if not message:
+                continue
+            events.append(
+                {
+                    "source": "command_collector",
+                    "event_type": EventType.COMMAND.value,
+                    "title": "command_observed",
+                    "timestamp": record.get("TimeCreated"),
+                    "payload": {
+                        "record_id": record_id,
+                        "command_line": message,
+                        "raw_log": message[:1000],
+                        "capture_method": "windows_event_4688",
+                    },
+                }
+            )
         return events
 
 

@@ -36,21 +36,6 @@ export const api = {
   collect: () => request("/api/collect", { method: "POST" }),
   reloadRules: () => request("/api/reload-rules", { method: "POST" }),
   control: () => request("/api/control"),
-  setMode: (mode) =>
-    request("/api/control/mode", {
-      method: "POST",
-      body: JSON.stringify({ mode })
-    }),
-  simulate: (scenario) =>
-    request("/api/control/simulate", {
-      method: "POST",
-      body: JSON.stringify({ scenario })
-    }),
-  autonomousRun: (scenario) =>
-    request("/api/control/autonomous-run", {
-      method: "POST",
-      body: JSON.stringify({ scenario })
-    }),
   agent: () => request("/api/agent"),
   pauseAgent: () => request("/api/agent/pause", { method: "POST" }),
   resumeAgent: () => request("/api/agent/resume", { method: "POST" }),
@@ -74,10 +59,10 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ ip_address: ipAddress, direction })
     }),
-  ingestEvent: (event) =>
-    request("/api/ingest", {
+  checkIp: (ipAddress, direction = "both") =>
+    request("/api/firewall/check-ip", {
       method: "POST",
-      body: JSON.stringify(event)
+      body: JSON.stringify({ ip_address: ipAddress, direction })
     }),
   signup: (email, password) => {
     return request("/api/auth/signup", {
