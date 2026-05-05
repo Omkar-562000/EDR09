@@ -58,6 +58,18 @@ class Storage:
                     details TEXT NOT NULL
                 );
 
+                CREATE TABLE IF NOT EXISTS alerts (
+                    alert_id TEXT PRIMARY KEY,
+                    created_at TEXT NOT NULL,
+                    last_seen TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    host TEXT NOT NULL,
+                    rule_ids TEXT NOT NULL,
+                    detection_ids TEXT NOT NULL,
+                    severity TEXT NOT NULL,
+                    description TEXT NOT NULL
+                );
+
                 CREATE TABLE IF NOT EXISTS users (
                     user_id TEXT PRIMARY KEY,
                     email TEXT NOT NULL UNIQUE,
@@ -131,6 +143,52 @@ class Storage:
                 ),
             )
         self._append_jsonl("actions.jsonl", action.to_dict())
+
+    def log_alert(self, alert) -> None:
+        # alert is expected to have to_dict()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO alerts
+                (alert_id, created_at, last_seen, title, host, rule_ids, detection_ids, severity, description)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    alert.alert_id,
+                    alert.created_at,
+                    alert.last_seen,
+                    alert.title,
+                    alert.host,
+                    json.dumps(alert.rule_ids),
+                    json.dumps(alert.detection_ids),
+                    alert.severity.value,
+                    alert.description,
+                ),
+            )
+        self._append_jsonl("alerts.jsonl", alert.to_dict())
+
+    def recent_alerts(self, limit: int = 100) -> list[dict[str, Any]]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM alerts ORDER BY last_seen DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        items: list[dict[str, Any]] = []
+        for row in rows:
+            items.append(
+                {
+                    "alert_id": row["alert_id"],
+                    "created_at": row["created_at"],
+                    "last_seen": row["last_seen"],
+                    "title": row["title"],
+                    "host": row["host"],
+                    "rule_ids": json.loads(row["rule_ids"]),
+                    "detection_ids": json.loads(row["detection_ids"]),
+                    "severity": row["severity"],
+                    "description": row["description"],
+                }
+            )
+        return items
 
     def recent_events(self, limit: int = 100) -> list[dict[str, Any]]:
         with self._connect() as conn:

@@ -1,6 +1,8 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 
 export default function ActivityTimeline({ events, fullScreen = false }) {
+  const [expandedEventId, setExpandedEventId] = useState(null);
+
   const getEventIcon = (eventType) => {
     const type = (eventType || "").toLowerCase();
     if (type.includes("process")) return "⚙️";
@@ -26,10 +28,10 @@ export default function ActivityTimeline({ events, fullScreen = false }) {
     if (!timestamp) return "N/A";
     try {
       const date = new Date(timestamp);
-      return date.toLocaleTimeString([], { 
-        hour: "2-digit", 
-        minute: "2-digit", 
-        second: "2-digit" 
+      return date.toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit"
       });
     } catch {
       return timestamp;
@@ -40,9 +42,9 @@ export default function ActivityTimeline({ events, fullScreen = false }) {
     if (!timestamp) return "Unknown date";
     try {
       const date = new Date(timestamp);
-      return date.toLocaleDateString([], { 
-        month: "short", 
-        day: "numeric" 
+      return date.toLocaleDateString([], {
+        month: "short",
+        day: "numeric"
       });
     } catch {
       return "Unknown date";
@@ -51,39 +53,48 @@ export default function ActivityTimeline({ events, fullScreen = false }) {
 
   const groupedEvents = useMemo(() => {
     const groups = {};
-    const compacted = new Map();
+    const sortedEvents = [...(events || [])].sort(
+      (a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0)
+    );
 
-    [...(events || [])].forEach((event) => {
-      const payload = event.payload || {};
-      const key = [
-        event.event_type,
-        event.title,
-        event.source,
-        payload.process_name || payload.remote_ip || payload.event_id || payload.path || ""
-      ].join("|");
-      const existing = compacted.get(key);
-      if (!existing) {
-        compacted.set(key, { ...event, occurrence_count: 1, last_seen: event.timestamp });
-        return;
-      }
-      existing.occurrence_count += 1;
-      if (new Date(event.timestamp || 0) > new Date(existing.last_seen || 0)) {
-        existing.last_seen = event.timestamp;
-        existing.timestamp = event.timestamp;
-      }
-    });
-
-    Array.from(compacted.values()).reverse().forEach((event) => {
+    sortedEvents.forEach((event) => {
       const date = formatDate(event.timestamp);
       if (!groups[date]) {
         groups[date] = [];
       }
       groups[date].push(event);
     });
+
     return groups;
   }, [events]);
 
-  const eventDates = Object.keys(groupedEvents);
+  const eventDates = Object.keys(groupedEvents).sort((a, b) => {
+    const dateA = new Date(a);
+    const dateB = new Date(b);
+    return dateB - dateA;
+  });
+
+  const toggleEventExpanded = (eventId) => {
+    setExpandedEventId(expandedEventId === eventId ? null : eventId);
+  };
+
+  const renderPayloadDetails = (payload) => {
+    if (!payload) return null;
+
+    const details = [];
+    if (payload.command_line) details.push({ label: "Command", value: payload.command_line });
+    if (payload.process_name) details.push({ label: "Process", value: payload.process_name });
+    if (payload.pid) details.push({ label: "PID", value: payload.pid });
+    if (payload.username) details.push({ label: "User", value: payload.username });
+    if (payload.remote_ip) details.push({ label: "Remote IP", value: payload.remote_ip });
+    if (payload.remote_port) details.push({ label: "Remote Port", value: payload.remote_port });
+    if (payload.local_address) details.push({ label: "Local Address", value: payload.local_address });
+    if (payload.status) details.push({ label: "Status", value: payload.status });
+    if (payload.rule_name) details.push({ label: "Rule", value: payload.rule_name });
+    if (payload.severity) details.push({ label: "Severity", value: payload.severity });
+
+    return details.length > 0 ? details : null;
+  };
 
   return (
     <section className={`panel activity-timeline ${fullScreen ? "fullscreen" : ""}`}>
@@ -103,46 +114,73 @@ export default function ActivityTimeline({ events, fullScreen = false }) {
             <div key={date} className="timeline-date-group">
               <div className="timeline-date-header">
                 <span className="date-label">{date}</span>
-                <span className="event-count-small">{groupedEvents[date].length}</span>
+                <span className="event-count-small">{groupedEvents[date].length} events</span>
               </div>
 
               <div className="timeline-events">
                 {groupedEvents[date].map((event, idx) => {
                   const eventType = event.event_type || event.type || "unknown";
+                  const eventId = `${date}-${idx}`;
+                  const isExpanded = expandedEventId === eventId;
+                  const payloadDetails = renderPayloadDetails(event.payload);
+
                   return (
-                    <div 
-                      key={idx} 
-                      className={`timeline-event ${getEventColor(eventType)}`}
+                    <div
+                      key={eventId}
+                      className={`timeline-event ${getEventColor(eventType)} ${
+                        isExpanded ? "expanded" : ""
+                      }`}
                     >
                       <div className="event-marker">
                         <div className="event-dot">
-                          <span className="event-icon">
-                            {getEventIcon(eventType)}
-                          </span>
+                          <span className="event-icon">{getEventIcon(eventType)}</span>
                         </div>
                       </div>
                       <div className="event-content">
-                        <div className="event-header">
+                        <div
+                          className="event-header clickable"
+                          onClick={() => toggleEventExpanded(eventId)}
+                          style={{ cursor: "pointer" }}
+                        >
                           <span className="event-type">{eventType.toUpperCase()}</span>
                           <span className="event-time">{formatTime(event.timestamp)}</span>
+                          <span className="expand-icon">{isExpanded ? "▼" : "▶"}</span>
                         </div>
                         <div className="event-title">
                           {event.title || event.description || event.message || "System Event"}
-                          {event.occurrence_count > 1 && (
-                            <span className="occurrence-chip">{event.occurrence_count}x</span>
-                          )}
                         </div>
-                        {event.details && (
-                          <div className="event-details">
-                            {typeof event.details === "string" 
-                              ? event.details 
-                              : JSON.stringify(event.details, null, 2)
-                            }
-                          </div>
-                        )}
-                        {event.source && (
-                          <div className="event-meta">
-                            <span className="event-source">Source: {event.source}</span>
+
+                        {isExpanded && (
+                          <div className="event-details-expanded">
+                            {payloadDetails && payloadDetails.length > 0 && (
+                              <div className="details-grid">
+                                {payloadDetails.map((detail, idx) => (
+                                  <div key={idx} className="detail-row">
+                                    <span className="detail-label">{detail.label}:</span>
+                                    <span className="detail-value">
+                                      {typeof detail.value === "string" &&
+                                      detail.value.length > 100
+                                        ? detail.value.substring(0, 100) + "..."
+                                        : detail.value}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+
+                            {event.source && (
+                              <div className="event-meta">
+                                <span className="event-source">Source: {event.source}</span>
+                              </div>
+                            )}
+
+                            {event.event_id && (
+                              <div className="event-meta">
+                                <span className="event-id">
+                                  Event ID: {event.event_id.substring(0, 12)}
+                                </span>
+                              </div>
+                            )}
                           </div>
                         )}
                       </div>

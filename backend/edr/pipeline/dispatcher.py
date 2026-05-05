@@ -4,6 +4,7 @@ from backend.edr.database.storage import Storage
 from backend.edr.detection.engine import DetectionEngine
 from backend.edr.models import Event
 from backend.edr.response.engine import ResponseEngine
+from backend.edr.correlation.aggregator import Aggregator
 
 
 class Dispatcher:
@@ -16,12 +17,16 @@ class Dispatcher:
         self.storage = storage
         self.detection_engine = detection_engine
         self.response_engine = response_engine
+        self.aggregator = Aggregator(self.storage)
 
     def dispatch(self, event: Event) -> None:
         self.storage.log_event(event)
         detections = self.detection_engine.evaluate(event)
         for detection in detections:
             self.storage.log_detection(detection)
+            # correlate/dedup into alerts
+            alert = self.aggregator.process_detection(detection)
+            # attach alert info to detection when logging actions
             actions = self.response_engine.execute(detection)
             for action in actions:
                 self.storage.log_action(action)

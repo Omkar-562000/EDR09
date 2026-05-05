@@ -68,7 +68,7 @@ frontend_origins = [
     origin.strip()
     for origin in os.getenv(
         "EDR_FRONTEND_ORIGINS",
-        "http://127.0.0.1:5173,http://localhost:5173",
+        "http://127.0.0.1:5173,http://localhost:5173,http://192.168.157.1:5173,http://192.168.59.1:5173,http://172.20.10.3:5173",
     ).split(",")
     if origin.strip()
 ]
@@ -292,6 +292,12 @@ async def actions(limit: int = 100, user: dict[str, Any] = Depends(get_current_u
         if action.get("details", {}).get("real_action") is True
     ]
     return real_actions[: min(limit, 500)]
+
+
+@app.get("/api/alerts")
+async def alerts(limit: int = 100, user: dict[str, Any] = Depends(get_current_user)) -> list[dict[str, Any]]:
+    del user
+    return edr_service.storage.recent_alerts(limit=min(limit, 500))
 
 
 @app.post("/api/collect")

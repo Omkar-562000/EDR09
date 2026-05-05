@@ -37,13 +37,26 @@ export default function SOCDashboard() {
   const fetchData = async () => {
     try {
       setIsRefreshing(true);
-      const [meData, statusData, detectionData, actionData, eventData] = await Promise.all([
+      const promises = [
         api.me(),
         api.status(),
         api.detections(alertLimit),
         api.actions(actionLimit),
-        api.events(eventLimit)
-      ]);
+        api.events(eventLimit),
+      ];
+      const results = await Promise.allSettled(promises);
+
+      const meData = results[0].status === "fulfilled" ? results[0].value : null;
+      const statusData = results[1].status === "fulfilled" ? results[1].value : null;
+      const detectionData = results[2].status === "fulfilled" ? results[2].value : [];
+      const actionData = results[3].status === "fulfilled" ? results[3].value : [];
+      const eventData = results[4].status === "fulfilled" ? results[4].value : [];
+
+      if (!meData) {
+        // likely unauthenticated — navigate to login
+        navigate("/login");
+        return;
+      }
 
       setUser(meData);
       setStats(statusData);
@@ -69,9 +82,8 @@ export default function SOCDashboard() {
         setSystemStatus("secure");
       }
     } catch (error) {
-      if (error.message.toLowerCase().includes("authentication")) {
-        navigate("/login");
-      }
+      // In case of unexpected errors, log and surface for debugging
+      console.error("fetchData error:", error);
     } finally {
       setIsRefreshing(false);
     }

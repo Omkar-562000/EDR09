@@ -102,3 +102,29 @@ class ResponseAction:
             "detection_id": self.detection_id,
             "details": self.details,
         }
+
+
+@dataclass(slots=True)
+class Alert:
+    alert_id: str
+    title: str
+    host: str
+    rule_ids: list[str]
+    detection_ids: list[str]
+    severity: Severity
+    description: str
+    created_at: str = field(default_factory=utc_now)
+    last_seen: str = field(default_factory=utc_now)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "alert_id": self.alert_id,
+            "title": self.title,
+            "host": self.host,
+            "rule_ids": self.rule_ids,
+            "detection_ids": self.detection_ids,
+            "severity": self.severity.value,
+            "description": self.description,
+            "created_at": self.created_at,
+            "last_seen": self.last_seen,
+        }

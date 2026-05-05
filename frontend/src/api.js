@@ -1,6 +1,9 @@
-const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8000";
+// Use relative API paths by default so Vite dev server proxy can forward requests
+// to the backend during development. If `VITE_API_URL` is set, use that instead.
+const API_BASE = import.meta.env.VITE_API_URL || "";
 
-async function request(path, options = {}) {
+// Add a fetch with timeout using AbortController to avoid hanging requests
+async function request(path, options = {}, timeoutMs = 12000) {
   const fetchOptions = {
     credentials: "include",
     ...options
@@ -16,7 +19,21 @@ async function request(path, options = {}) {
     fetchOptions.headers = options.headers;
   }
 
-  const response = await fetch(`${API_BASE}${path}`, fetchOptions);
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), timeoutMs);
+  fetchOptions.signal = controller.signal;
+
+  let response;
+  try {
+    response = await fetch(`${API_BASE}${path}`, fetchOptions);
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      throw new Error('Request timed out');
+    }
+    throw err;
+  } finally {
+    clearTimeout(id);
+  }
 
   if (!response.ok) {
     const payload = await response.json().catch(() => ({}));
