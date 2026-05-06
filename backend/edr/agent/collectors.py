@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import socket
 import subprocess
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +15,9 @@ from backend.edr.models import EventType
 
 
 class ProcessCollector:
+    def __init__(self) -> None:
+        self._seen_processes: set[str] = set()
+
     def collect(self) -> list[dict[str, Any]]:
         events: list[dict[str, Any]] = []
         for proc in psutil.process_iter(["pid", "name", "cmdline", "username"]):
@@ -21,6 +26,10 @@ class ProcessCollector:
                 cmdline = " ".join(info.get("cmdline") or [])
                 if not cmdline and not info.get("name"):
                     continue
+                process_key = f"{info.get('pid')}:{info.get('name')}:{cmdline}"
+                if process_key in self._seen_processes:
+                    continue
+                self._seen_processes.add(process_key)
                 events.append(
                     {
                         "source": "process_collector",
@@ -63,8 +72,9 @@ class CommandActivityCollector:
     }
 
     def __init__(self) -> None:
-        self._seen_live_commands: set[str] = set()
-        self._last_4688_record_id = 0
+        self._seen_live_commands: set[str] = self._current_live_command_keys()
+        self._seen_command_fingerprints: set[str] = set()
+        self._last_4688_record_id = self._current_4688_record_id()
 
     def collect(self) -> list[dict[str, Any]]:
         events = self._collect_live_process_commands()
@@ -81,6 +91,12 @@ class CommandActivityCollector:
                     continue
 
                 command_line = " ".join(info.get("cmdline") or [])
+                if self._should_ignore_command(command_line):
+                    continue
+                command_fingerprint = self._command_fingerprint(process_name, command_line)
+                if command_fingerprint in self._seen_command_fingerprints:
+                    continue
+                self._seen_command_fingerprints.add(command_fingerprint)
                 command_key = f"{info.get('pid')}:{command_line}"
                 if command_key in self._seen_live_commands:
                     continue
@@ -104,6 +120,22 @@ class CommandActivityCollector:
             except (psutil.NoSuchProcess, psutil.AccessDenied):
                 continue
         return events
+
+    def _current_live_command_keys(self) -> set[str]:
+        keys: set[str] = set()
+        for proc in psutil.process_iter(["pid", "name", "cmdline"]):
+            try:
+                info = proc.info
+                process_name = (info.get("name") or "").lower()
+                if process_name not in self.command_processes:
+                    continue
+                command_line = " ".join(info.get("cmdline") or [])
+                if self._should_ignore_command(command_line):
+                    continue
+                keys.add(f"{info.get('pid')}:{command_line}")
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+        return keys
 
     def _collect_windows_4688_commands(self) -> list[dict[str, Any]]:
         events: list[dict[str, Any]] = []
@@ -142,21 +174,93 @@ class CommandActivityCollector:
             message = record.get("Message") or ""
             if not message:
                 continue
+            if self._should_ignore_command(message):
+                continue
+            command_line = self._extract_4688_command_line(message)
+            command_fingerprint = self._command_fingerprint("windows_event_4688", command_line or message)
+            if command_fingerprint in self._seen_command_fingerprints:
+                continue
+            self._seen_command_fingerprints.add(command_fingerprint)
             events.append(
                 {
                     "source": "command_collector",
                     "event_type": EventType.COMMAND.value,
                     "title": "command_observed",
-                    "timestamp": record.get("TimeCreated"),
+                    "timestamp": self._normalize_windows_timestamp(record.get("TimeCreated")),
                     "payload": {
                         "record_id": record_id,
-                        "command_line": message,
+                        "command_line": command_line or message,
                         "raw_log": message[:1000],
                         "capture_method": "windows_event_4688",
                     },
                 }
             )
         return events
+
+    def _should_ignore_command(self, command_line: str) -> bool:
+        normalized = " ".join((command_line or "").lower().split())
+        if not normalized:
+            return True
+        ignored_fragments = [
+            "get-winevent -filterhashtable",
+            "select-object timecreated,recordid,message",
+            "select-object -expandproperty recordid",
+            "convertto-json",
+            "uvicorn backend.app:app",
+            "npm run dev",
+            "vite",
+        ]
+        return any(fragment in normalized for fragment in ignored_fragments)
+
+    def _command_fingerprint(self, process_name: str, command_line: str) -> str:
+        normalized_command = " ".join((command_line or "").lower().split())
+        return f"{process_name.lower()}:{normalized_command}"
+
+    def _extract_4688_command_line(self, message: str) -> str:
+        for label in ("Process Command Line:", "Command Line:"):
+            if label not in message:
+                continue
+            value = message.split(label, 1)[1].splitlines()[0].strip()
+            if value:
+                return value
+        return ""
+
+    def _current_4688_record_id(self) -> int:
+        command = [
+            "powershell",
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            (
+                "Get-WinEvent -FilterHashtable @{LogName='Security'; ID=4688} -MaxEvents 1 "
+                "-ErrorAction SilentlyContinue | Select-Object -ExpandProperty RecordId"
+            ),
+        ]
+        try:
+            result = subprocess.run(command, capture_output=True, text=True, timeout=5)
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            return 0
+        if result.returncode != 0:
+            return 0
+        try:
+            return int(result.stdout.strip() or 0)
+        except ValueError:
+            return 0
+
+    def _normalize_windows_timestamp(self, value: Any) -> str:
+        if isinstance(value, str):
+            match = re.search(r"/Date\((\d+)", value)
+            if match:
+                seconds = int(match.group(1)) / 1000
+                return datetime.fromtimestamp(seconds, timezone.utc).isoformat()
+            try:
+                return datetime.fromisoformat(value.replace("Z", "+00:00")).isoformat()
+            except ValueError:
+                pass
+        if isinstance(value, dict) and "DateTime" in value:
+            return self._normalize_windows_timestamp(value["DateTime"])
+        return datetime.now(timezone.utc).isoformat()
 
 
 class NetworkCollector:

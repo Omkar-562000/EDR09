@@ -2,6 +2,13 @@ import { useMemo, useState } from "react";
 
 export default function ActivityTimeline({ events, fullScreen = false }) {
   const [expandedEventId, setExpandedEventId] = useState(null);
+  const [typeFilter, setTypeFilter] = useState("all");
+  const [searchTerm, setSearchTerm] = useState("");
+
+  const parseTimestamp = (timestamp) => {
+    const date = new Date(timestamp || 0);
+    return Number.isNaN(date.getTime()) ? null : date;
+  };
 
   const getEventIcon = (eventType) => {
     const type = (eventType || "").toLowerCase();
@@ -26,35 +33,50 @@ export default function ActivityTimeline({ events, fullScreen = false }) {
 
   const formatTime = (timestamp) => {
     if (!timestamp) return "N/A";
-    try {
-      const date = new Date(timestamp);
-      return date.toLocaleTimeString([], {
-        hour: "2-digit",
-        minute: "2-digit",
-        second: "2-digit"
-      });
-    } catch {
+    const date = parseTimestamp(timestamp);
+    if (!date) {
       return timestamp;
     }
+    return date.toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit"
+    });
   };
 
   const formatDate = (timestamp) => {
     if (!timestamp) return "Unknown date";
-    try {
-      const date = new Date(timestamp);
-      return date.toLocaleDateString([], {
-        month: "short",
-        day: "numeric"
-      });
-    } catch {
+    const date = parseTimestamp(timestamp);
+    if (!date) {
       return "Unknown date";
     }
+    return date.toLocaleDateString([], {
+      month: "short",
+      day: "numeric"
+    });
   };
 
   const groupedEvents = useMemo(() => {
     const groups = {};
-    const sortedEvents = [...(events || [])].sort(
-      (a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0)
+    const filteredEvents = [...(events || [])].filter((event) => {
+      const eventType = event.event_type || event.type || "unknown";
+      if (typeFilter !== "all" && eventType !== typeFilter) {
+        return false;
+      }
+      if (!searchTerm.trim()) {
+        return true;
+      }
+      const term = searchTerm.toLowerCase();
+      const payloadText = JSON.stringify(event.payload || {}).toLowerCase();
+      return (
+        eventType.toLowerCase().includes(term) ||
+        (event.title || "").toLowerCase().includes(term) ||
+        (event.source || "").toLowerCase().includes(term) ||
+        payloadText.includes(term)
+      );
+    });
+    const sortedEvents = filteredEvents.sort(
+      (a, b) => (parseTimestamp(b.timestamp)?.getTime() || 0) - (parseTimestamp(a.timestamp)?.getTime() || 0)
     );
 
     sortedEvents.forEach((event) => {
@@ -66,11 +88,27 @@ export default function ActivityTimeline({ events, fullScreen = false }) {
     });
 
     return groups;
+  }, [events, searchTerm, typeFilter]);
+
+  const eventTypes = useMemo(() => {
+    const knownTypes = [
+      "command",
+      "process",
+      "process_injection",
+      "network",
+      "dns_query",
+      "file",
+      "registry_change",
+      "security_event",
+      "system_event",
+    ];
+    const observedTypes = (events || []).map((event) => event.event_type || event.type || "unknown");
+    return Array.from(new Set([...knownTypes, ...observedTypes])).sort();
   }, [events]);
 
   const eventDates = Object.keys(groupedEvents).sort((a, b) => {
-    const dateA = new Date(a);
-    const dateB = new Date(b);
+    const dateA = parseTimestamp(a)?.getTime() || 0;
+    const dateB = parseTimestamp(b)?.getTime() || 0;
     return dateB - dateA;
   });
 
@@ -84,6 +122,7 @@ export default function ActivityTimeline({ events, fullScreen = false }) {
     const details = [];
     if (payload.command_line) details.push({ label: "Command", value: payload.command_line });
     if (payload.process_name) details.push({ label: "Process", value: payload.process_name });
+    if (payload.capture_method) details.push({ label: "Capture", value: payload.capture_method });
     if (payload.pid) details.push({ label: "PID", value: payload.pid });
     if (payload.username) details.push({ label: "User", value: payload.username });
     if (payload.remote_ip) details.push({ label: "Remote IP", value: payload.remote_ip });
@@ -92,6 +131,11 @@ export default function ActivityTimeline({ events, fullScreen = false }) {
     if (payload.status) details.push({ label: "Status", value: payload.status });
     if (payload.rule_name) details.push({ label: "Rule", value: payload.rule_name });
     if (payload.severity) details.push({ label: "Severity", value: payload.severity });
+    if (payload.matched_rules) {
+      Object.entries(payload.matched_rules).forEach(([ruleId, match]) => {
+        details.push({ label: `Matched ${ruleId}`, value: match.matched_value || match.rule_name });
+      });
+    }
 
     return details.length > 0 ? details : null;
   };
@@ -100,7 +144,24 @@ export default function ActivityTimeline({ events, fullScreen = false }) {
     <section className={`panel activity-timeline ${fullScreen ? "fullscreen" : ""}`}>
       <div className="panel-header">
         <h2>Activity Timeline</h2>
-        <span className="event-count">{events?.length || 0} recent events</span>
+        <div className="panel-controls">
+          <input
+            type="text"
+            className="search-input"
+            placeholder="Search activity..."
+            value={searchTerm}
+            onChange={(event) => setSearchTerm(event.target.value)}
+          />
+          <select className="filter-select" value={typeFilter} onChange={(event) => setTypeFilter(event.target.value)}>
+            <option value="all">All Types</option>
+            {eventTypes.map((eventType) => (
+              <option key={eventType} value={eventType}>
+                {eventType}
+              </option>
+            ))}
+          </select>
+          <span className="event-count">{events?.length || 0} recent events</span>
+        </div>
       </div>
 
       <div className="timeline-container">

@@ -24,6 +24,7 @@ class DetectionEngine:
             if rule.event_type != event.event_type.value:
                 continue
             if self._matches_rule(rule, event):
+                self._annotate_match(rule, event)
                 matches.append(
                     Detection(
                         rule_id=rule.rule_id,
@@ -37,6 +38,16 @@ class DetectionEngine:
                     )
                 )
         return matches
+
+    def _annotate_match(self, rule: Rule, event: Event) -> None:
+        matched_value = self._matched_value(rule, event)
+        if matched_value is None:
+            return
+        event.payload.setdefault("matched_rules", {})[rule.rule_id] = {
+            "rule_name": rule.name,
+            "field": rule.match_field,
+            "matched_value": matched_value,
+        }
 
     def _matches_rule(self, rule: Rule, event: Event) -> bool:
         payload = event.payload
@@ -95,6 +106,35 @@ class DetectionEngine:
         if isinstance(expected, list):
             return any(str(item).lower() in target_text for item in expected)
         return str(expected).lower() in target_text
+
+    def _matched_value(self, rule: Rule, event: Event) -> str | None:
+        payload = event.payload
+        field = rule.match_field
+        target = payload.get(field or "") if field else None
+        if rule.condition == "contains":
+            return self._first_matching_text(target, rule.value)
+        if rule.condition == "command_line_contains":
+            return self._first_matching_text(payload.get(field or "cmdline"), rule.value)
+        if rule.condition == "in_list":
+            return str(payload.get(field or "", "")) or None
+        if rule.condition == "remote_ip_not_in_allowlist":
+            return str(payload.get(field or "remote_ip", "")) or None
+        if rule.condition == "event_id_match":
+            return str(payload.get(field or "event_id", "")) or None
+        return None
+
+    def _first_matching_text(self, target: Any, expected: Any) -> str | None:
+        if target is None:
+            return None
+        target_text = str(target).lower()
+        if isinstance(expected, list):
+            for item in expected:
+                item_text = str(item)
+                if item_text.lower() in target_text:
+                    return item_text
+            return None
+        expected_text = str(expected)
+        return expected_text if expected_text.lower() in target_text else None
 
     def _values_equal(self, left: Any, right: Any) -> bool:
         if left == right:

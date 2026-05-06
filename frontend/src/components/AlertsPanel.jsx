@@ -4,10 +4,15 @@ export default function AlertsPanel({ detections, onSelectAlert, fullScreen = fa
   const [sortBy, setSortBy] = useState("timestamp");
   const [filterSeverity, setFilterSeverity] = useState("all");
   const [filterStatus, setFilterStatus] = useState("all");
+  const [filterRule, setFilterRule] = useState("all");
   const [searchTerm, setSearchTerm] = useState("");
 
   // Map severity levels to numeric values for sorting
   const severityMap = { critical: 3, high: 2, medium: 1, low: 0 };
+  const parseTimestamp = (timestamp) => {
+    const date = new Date(timestamp || 0);
+    return Number.isNaN(date.getTime()) ? null : date;
+  };
 
   const filtered = useMemo(() => {
     let result = [...detections];
@@ -33,21 +38,27 @@ export default function AlertsPanel({ detections, onSelectAlert, fullScreen = fa
       }
     }
 
+    if (filterRule !== "all") {
+      result = result.filter(d => (d.rule_id || d.rule_name) === filterRule);
+    }
+
     // Search
     if (searchTerm) {
       const term = searchTerm.toLowerCase();
       result = result.filter(d => 
         (d.detection_id || "").toLowerCase().includes(term) ||
+        (d.rule_id || "").toLowerCase().includes(term) ||
         (d.rule_name || "").toLowerCase().includes(term) ||
         (d.description || "").toLowerCase().includes(term) ||
-        (d.event?.title || "").toLowerCase().includes(term)
+        (d.event?.title || "").toLowerCase().includes(term) ||
+        JSON.stringify(d.event?.payload || {}).toLowerCase().includes(term)
       );
     }
 
     // Sort
     result.sort((a, b) => {
       if (sortBy === "timestamp") {
-        return new Date(b.timestamp || 0) - new Date(a.timestamp || 0);
+        return (parseTimestamp(b.timestamp)?.getTime() || 0) - (parseTimestamp(a.timestamp)?.getTime() || 0);
       } else if (sortBy === "severity") {
         const aSev = severityMap[(a.severity || "low").toLowerCase()] || 0;
         const bSev = severityMap[(b.severity || "low").toLowerCase()] || 0;
@@ -57,7 +68,18 @@ export default function AlertsPanel({ detections, onSelectAlert, fullScreen = fa
     });
 
     return result;
-  }, [detections, filterSeverity, filterStatus, searchTerm, sortBy]);
+  }, [detections, filterRule, filterSeverity, filterStatus, searchTerm, sortBy]);
+
+  const ruleOptions = useMemo(() => {
+    const options = new Map();
+    detections.forEach((detection) => {
+      const value = detection.rule_id || detection.rule_name;
+      if (value) {
+        options.set(value, `${detection.rule_id || "Rule"} - ${detection.rule_name || value}`);
+      }
+    });
+    return Array.from(options.entries()).sort((a, b) => a[1].localeCompare(b[1]));
+  }, [detections]);
 
   const groupedAlerts = useMemo(() => {
     const groups = new Map();
@@ -84,13 +106,13 @@ export default function AlertsPanel({ detections, onSelectAlert, fullScreen = fa
       }
 
       existing.occurrence_count += 1;
-      if (new Date(detection.timestamp || 0) > new Date(existing.last_seen || 0)) {
+      if ((parseTimestamp(detection.timestamp)?.getTime() || 0) > (parseTimestamp(existing.last_seen)?.getTime() || 0)) {
         existing.last_seen = detection.timestamp;
         existing.detection_id = detection.detection_id;
         existing.timestamp = detection.timestamp;
         existing.event = detection.event;
       }
-      if (new Date(detection.timestamp || 0) < new Date(existing.first_seen || 0)) {
+      if ((parseTimestamp(detection.timestamp)?.getTime() || 0) < (parseTimestamp(existing.first_seen)?.getTime() || 0)) {
         existing.first_seen = detection.timestamp;
       }
     });
@@ -101,7 +123,7 @@ export default function AlertsPanel({ detections, onSelectAlert, fullScreen = fa
         const bSev = severityMap[(b.severity || "low").toLowerCase()] || 0;
         if (bSev !== aSev) return bSev - aSev;
       }
-      return new Date(b.last_seen || 0) - new Date(a.last_seen || 0);
+      return (parseTimestamp(b.last_seen)?.getTime() || 0) - (parseTimestamp(a.last_seen)?.getTime() || 0);
     });
   }, [filtered, sortBy]);
 
@@ -114,11 +136,16 @@ export default function AlertsPanel({ detections, onSelectAlert, fullScreen = fa
 
   const formatTime = (timestamp) => {
     if (!timestamp) return "N/A";
-    try {
-      return new Date(timestamp).toLocaleTimeString();
-    } catch {
+    const date = parseTimestamp(timestamp);
+    if (!date) {
       return timestamp;
     }
+    return date.toLocaleTimeString();
+  };
+
+  const matchedValue = (detection) => {
+    const match = detection.event?.payload?.matched_rules?.[detection.rule_id];
+    return match?.matched_value || "";
   };
 
   return (
@@ -152,6 +179,18 @@ export default function AlertsPanel({ detections, onSelectAlert, fullScreen = fa
             <option value="all">All Status</option>
             <option value="active">Active</option>
             <option value="resolved">Resolved</option>
+          </select>
+          <select
+            className="filter-select"
+            value={filterRule}
+            onChange={(e) => setFilterRule(e.target.value)}
+          >
+            <option value="all">All Rules</option>
+            {ruleOptions.map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
           </select>
           <select 
             className="sort-select"
@@ -194,6 +233,9 @@ export default function AlertsPanel({ detections, onSelectAlert, fullScreen = fa
                   <td className="cell-id">{detection.detection_id?.substring(0, 8) || `ALT-${idx}`}</td>
                   <td className="cell-threat">
                     {detection.rule_name || detection.description || "Unknown"}
+                    {matchedValue(detection) && (
+                      <span className="occurrence-chip">match: {matchedValue(detection)}</span>
+                    )}
                     {detection.occurrence_count > 1 && (
                       <span className="occurrence-chip">{detection.occurrence_count}x</span>
                     )}
