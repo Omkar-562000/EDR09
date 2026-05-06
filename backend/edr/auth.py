@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import binascii
 import hashlib
 import hmac
 import os
@@ -17,9 +18,14 @@ def hash_password(password: str, salt: bytes | None = None) -> str:
 
 
 def verify_password(password: str, password_hash: str) -> bool:
-    salt_encoded, digest_encoded = password_hash.split(":", 1)
-    salt = base64.urlsafe_b64decode(salt_encoded.encode())
-    expected = hash_password(password, salt)
+    try:
+        salt_encoded, digest_encoded = password_hash.split(":", 1)
+        if not salt_encoded or not digest_encoded:
+            return False
+        salt = base64.urlsafe_b64decode(salt_encoded.encode())
+        expected = hash_password(password, salt)
+    except (AttributeError, ValueError, binascii.Error):
+        return False
     return hmac.compare_digest(expected, password_hash)
 
 

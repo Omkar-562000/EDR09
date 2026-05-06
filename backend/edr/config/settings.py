@@ -16,6 +16,12 @@ AUTH_COOKIE_NAME = "edr_session"
 SESSION_TTL_SECONDS = int(os.getenv("EDR_SESSION_TTL_SECONDS", "43200"))
 SESSION_SECRET = os.getenv("EDR_SESSION_SECRET", "change-this-secret-in-production")
 COOKIE_SECURE = os.getenv("EDR_COOKIE_SECURE", "false").lower() == "true"
+COOKIE_SAMESITE = os.getenv("EDR_COOKIE_SAMESITE", "lax").lower()
+FIREWALL_LOCAL_PORTS = tuple(
+    port.strip()
+    for port in os.getenv("EDR_FIREWALL_LOCAL_PORTS", "5173,8000").split(",")
+    if port.strip()
+)
 
 QUEUE_POLL_TIMEOUT = 0.5
 DEFAULT_AGENT_INTERVAL = 2.0

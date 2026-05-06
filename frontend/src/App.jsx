@@ -7,6 +7,7 @@ import SOCDashboard from "./components/SOCDashboard";
 function ProtectedRoute({ children }) {
   const [ready, setReady] = useState(false);
   const [allowed, setAllowed] = useState(false);
+  const [user, setUser] = useState(null);
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -14,10 +15,11 @@ function ProtectedRoute({ children }) {
     let active = true;
     api
       .me()
-      .then(() => {
+      .then((meData) => {
         if (!active) {
           return;
         }
+        setUser(meData);
         setAllowed(true);
         setReady(true);
       })
@@ -38,7 +40,7 @@ function ProtectedRoute({ children }) {
     return <div className="loading-screen">Checking session...</div>;
   }
 
-  return allowed ? children : null;
+  return allowed ? children(user) : null;
 }
 
 export default function App() {
@@ -51,7 +53,7 @@ export default function App() {
         path="/app"
         element={
           <ProtectedRoute>
-            <SOCDashboard />
+            {(user) => <SOCDashboard initialUser={user} />}
           </ProtectedRoute>
         }
       />

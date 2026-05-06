@@ -37,7 +37,10 @@ async function request(path, options = {}, timeoutMs = 12000) {
 
   if (!response.ok) {
     const payload = await response.json().catch(() => ({}));
-    throw new Error(payload.detail || `Request failed: ${response.status}`);
+    const error = new Error(payload.detail || `Request failed: ${response.status}`);
+    error.status = response.status;
+    error.payload = payload;
+    throw error;
   }
 
   return response.json().catch(() => ({}));
@@ -70,17 +73,17 @@ export const api = {
     request("/api/firewall/block-ip", {
       method: "POST",
       body: JSON.stringify({ ip_address: ipAddress, direction })
-    }),
+    }, 45000),
   unblockIp: (ipAddress, direction = "both") =>
     request("/api/firewall/unblock-ip", {
       method: "POST",
       body: JSON.stringify({ ip_address: ipAddress, direction })
-    }),
+    }, 45000),
   checkIp: (ipAddress, direction = "both") =>
     request("/api/firewall/check-ip", {
       method: "POST",
       body: JSON.stringify({ ip_address: ipAddress, direction })
-    }),
+    }, 30000),
   signup: (email, password) => {
     return request("/api/auth/signup", {
       method: "POST",

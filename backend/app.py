@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import sqlite3
 from contextlib import asynccontextmanager
@@ -10,11 +11,23 @@ from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, field_validator
 
 from backend.edr.auth import create_session_token, hash_password, new_user_id, parse_session_token, verify_password
-from backend.edr.config.settings import AUTH_COOKIE_NAME, BASE_DIR, COOKIE_SECURE, SESSION_TTL_SECONDS, SETTINGS_PATH, ensure_directories
+from backend.edr.config.settings import (
+    AUTH_COOKIE_NAME,
+    BASE_DIR,
+    COOKIE_SECURE,
+    COOKIE_SAMESITE,
+    SESSION_TTL_SECONDS,
+    SETTINGS_PATH,
+    ensure_directories,
+)
 from backend.edr.service import EDRService
+
+
+logger = logging.getLogger(__name__)
 
 
 def load_settings() -> dict[str, Any]:
@@ -98,7 +111,16 @@ app.add_middleware(
 )
 
 
-def get_current_user(request: Request) -> dict[str, Any]:
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    logger.exception("Unhandled backend error while processing %s %s", request.method, request.url.path)
+    return JSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content={"detail": "Internal server error"},
+    )
+
+
+def get_current_user(request: Request, response: Response) -> dict[str, Any]:
     token = request.cookies.get(AUTH_COOKIE_NAME)
     if not token:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required")
@@ -108,16 +130,24 @@ def get_current_user(request: Request) -> dict[str, Any]:
     user = edr_service.storage.get_user_by_id(session["user_id"])
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unknown user")
+    # Refresh session cookie on each authenticated request to provide a sliding session
+    try:
+        set_session_cookie(response, user)
+    except Exception:
+        # If cookie refresh fails for any reason, continue and let the original session remain valid
+        pass
     return user
 
 
 def set_session_cookie(response: Response, user: dict[str, Any]) -> None:
     token = create_session_token(user["user_id"], user["email"])
+    # Use configurable SameSite setting for development flexibility (lax/strict/none)
+    samesite = COOKIE_SAMESITE if COOKIE_SAMESITE in {"lax", "strict", "none"} else "lax"
     response.set_cookie(
         key=AUTH_COOKIE_NAME,
         value=token,
         httponly=True,
-        samesite="lax",
+        samesite=samesite,
         secure=COOKIE_SECURE,
         max_age=SESSION_TTL_SECONDS,
     )

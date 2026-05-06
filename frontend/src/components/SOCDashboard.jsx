@@ -8,9 +8,9 @@ import EndpointsView from "./EndpointsView";
 import LogsViewer from "./LogsViewer";
 import ResponsePanel from "./ResponsePanel";
 
-export default function SOCDashboard() {
+export default function SOCDashboard({ initialUser = null }) {
   const navigate = useNavigate();
-  const [user, setUser] = useState(null);
+  const [user, setUser] = useState(initialUser);
   const [stats, setStats] = useState(null);
   const [detections, setDetections] = useState([]);
   const [actions, setActions] = useState([]);
@@ -47,24 +47,27 @@ export default function SOCDashboard() {
       const results = await Promise.allSettled(promises);
 
       const meData = results[0].status === "fulfilled" ? results[0].value : null;
-      const statusData = results[1].status === "fulfilled" ? results[1].value : null;
-      const detectionData = results[2].status === "fulfilled" ? results[2].value : [];
-      const actionData = results[3].status === "fulfilled" ? results[3].value : [];
-      const eventData = results[4].status === "fulfilled" ? results[4].value : [];
+      const statusData = results[1].status === "fulfilled" ? results[1].value : stats;
+      const detectionData = results[2].status === "fulfilled" ? results[2].value : detections;
+      const actionData = results[3].status === "fulfilled" ? results[3].value : actions;
+      const eventData = results[4].status === "fulfilled" ? results[4].value : events;
 
-      if (!meData) {
-        // likely unauthenticated — navigate to login
-        navigate("/login");
+      if (results[0].status === "rejected" && results[0].reason?.status === 401) {
+        navigate("/login", { replace: true });
         return;
       }
 
-      setUser(meData);
-      setStats(statusData);
+      if (meData) {
+        setUser(meData);
+      }
+      if (statusData) {
+        setStats(statusData);
+      }
       setDetections(detectionData || []);
       setActions(actionData || []);
       setEvents(eventData || []);
-      setAgent(statusData.agent || null);
-      if (!isEditingAgentInterval) {
+      setAgent(statusData?.agent || null);
+      if (statusData?.agent && !isEditingAgentInterval) {
         setAgentIntervalDraft(statusData.agent?.interval_seconds || 60);
       }
       setLastUpdate(new Date());
@@ -175,7 +178,14 @@ export default function SOCDashboard() {
     await updateFirewall("firewall-check", async () => {
       const result = await api.checkIp(firewallIp, firewallDirection);
       const state = result.blocked ? "blocked" : "not blocked";
-      return { message: `${result.ip_address} is ${state} for ${result.direction}.` };
+      const activeRules = (result.rules || [])
+        .filter((rule) => rule.exists && rule.enabled && rule.action === "Block")
+        .map((rule) => {
+          const portText = rule.local_port ? ` ports ${rule.local_port}` : "";
+          return `${rule.direction}${portText}`;
+        });
+      const detail = activeRules.length ? ` Active rules: ${activeRules.join(", ")}.` : "";
+      return { message: `${result.ip_address} is ${state} for ${result.direction}.${detail}` };
     });
   };
 
